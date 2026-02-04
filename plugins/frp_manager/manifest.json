@@ -1,0 +1,15 @@
+{
+    "id": "frp_manager",
+    "name": "FRP Manager",
+    "description": "内网穿透管理",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "entry": "plugin.py",
+    "class": "FRPManagerPlugin",
+    "permissions": [
+        "ui",
+        "db"
+    ],
+    "api_version": "1.0",
+    "db_schema_version": 1
+}

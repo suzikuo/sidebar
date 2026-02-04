@@ -1,0 +1,15 @@
+{
+    "id": "ssh_manager",
+    "name": "SSH Manager",
+    "description": "SSH管理",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "entry": "plugin.py",
+    "class": "SSHManagerPlugin",
+    "permissions": [
+        "ui",
+        "db"
+    ],
+    "api_version": "1.0",
+    "db_schema_version": 1
+}

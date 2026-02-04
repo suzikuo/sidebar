@@ -1,0 +1,14 @@
+{
+    "id": "bookmarks.card",
+    "name": "Bookmarks",
+    "description": "书签管理",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "entry": "plugin.py",
+    "class": "BookmarksPlugin",
+    "permissions": [
+        "ui"
+    ],
+    "api_version": "1.0",
+    "db_schema_version": 1
+}

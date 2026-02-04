@@ -1,0 +1,14 @@
+{
+    "id": "app_launcher",
+    "name": "My PWD Mg",
+    "description": "应用启动器",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "entry": "plugin.py",
+    "class": "AppLauncher",
+    "permissions": [
+        "ui"
+    ],
+    "api_version": "1.0",
+    "db_schema_version": 1
+}

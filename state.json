@@ -1,0 +1,49 @@
+{
+    "system": {},
+    "plugins": {},
+    "settings": {
+        "general": {
+            "run_on_startup": false,
+            "enable_notifications": true,
+            "auto_hide_delay": 1000,
+            "trigger_zone_width": 5
+        },
+        "appearance": {
+            "theme_mode": "dark",
+            "sidebar_position": "right",
+            "sidebar_width": 500,
+            "collapsed_width": 48,
+            "icon_size": 40,
+            "font_family": "Segoe UI",
+            "font_size": 13,
+            "font_weight": "normal",
+            "accent_color": "#FF6B9D",
+            "sidebar_opacity": 1.0,
+            "sidebar_height_percent": 0.2,
+            "sidebar_hidden_height_percent": 0.2,
+            "sidebar_y_offset": -205,
+            "hidden_border_color": "#0dff00",
+            "detail_min_height": 609
+        },
+        "plugins": {
+            "enabled": [],
+            "disabled": [],
+            "order": [
+                "bookmarks.card",
+                "frp_manager",
+                "ssh_manager",
+                "app_launcher",
+                "toolbox"
+            ]
+        },
+        "shortcuts": {
+            "toggle_sidebar": "alt+f1",
+            "plugin.bookmarks.card": "",
+            "plugin.frp_manager": "",
+            "plugin.app_launcher": "",
+            "plugin.ssh_manager": "",
+            "toggle_sidebar_visibility": ""
+        }
+    },
+    "window_geometry": "01d9d0cb00030000000006a800000000000007ce000003be000006a800000000000007ce000003be000000000000000006ab000006a800000000000007ce000003be"
+}
