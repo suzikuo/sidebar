@@ -32,7 +32,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['C:\\Users\\98027\\Desktop\\agile-tiles-master\\icon.ico'],
+    icon=['C:\\Users\\98027\\Desktop\\sidebar\\icon.ico'],
 )
 coll = COLLECT(
     exe,

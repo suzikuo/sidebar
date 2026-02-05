@@ -132,31 +132,42 @@ class SidebarWindow(FramelessWindow):
 
     def _get_behavior(self, is_hidden=False):
         """Get window behavior based on state (hidden/visible)."""
-        screen = QGuiApplication.primaryScreen()
+        # 1. Determine which screen we are on
+        # If we have a geometry, use the screen that contains our center
+        # Otherwise fall back to primary screen
+        current_geo = self.geometry()
+        screen = QGuiApplication.screenAt(current_geo.center())
+        if not screen:
+            screen = QGuiApplication.primaryScreen()
+
         screen_geometry = screen.availableGeometry()
 
-        # Read height and y_offset settings
+        # 2. Read settings
         settings = self.state_store.get("settings", {}).get("appearance", {})
         y_offset_px = settings.get("sidebar_y_offset", 0)
+        edge = settings.get("sidebar_position", "right")
 
         if is_hidden:
             height_percent = settings.get("sidebar_hidden_height_percent", 0.8)
         else:
             height_percent = settings.get("sidebar_height_percent", 0.8)
 
-        # Calculate height
+        # 3. Calculate height
         height = int(screen_geometry.height() * height_percent)
 
-        # Construct a "virtual screen" rect that is centered vertically + offset
+        # 4. Construct a "virtual screen" rect that is centered vertically + offset
+        # We calculate the Y relative to the screen's top
         base_y = (screen_geometry.height() - height) // 2
-        final_y = base_y + y_offset_px
+        final_y = screen_geometry.top() + base_y + y_offset_px
 
-        # Clamp final_y to keep window on screen
-        final_y = max(0, min(final_y, screen_geometry.height() - height))
+        # Clamp final_y to keep window on screen vertically
+        final_y = max(
+            screen_geometry.top(), min(final_y, screen_geometry.bottom() - height)
+        )
 
         virtual_screen = QRect(
             screen_geometry.left(),
-            screen_geometry.top() + final_y,
+            final_y,
             screen_geometry.width(),
             height,
         )
@@ -165,7 +176,7 @@ class SidebarWindow(FramelessWindow):
             screen_geometry=virtual_screen,
             width=48,  # Sidebar is fixed width (icon strip)
             collapsed_width=48,
-            edge="right",
+            edge=edge,
         )
 
     def _init_behavior(self):

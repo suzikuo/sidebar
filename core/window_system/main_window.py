@@ -138,7 +138,12 @@ class DetailWindow(FramelessWindow):
                 # Vertical positioning
                 from PySide6.QtGui import QGuiApplication
 
-                screen_geo = QGuiApplication.primaryScreen().availableGeometry()
+                # Determine screen based on anchor_rect (sidebar)
+                screen = QGuiApplication.screenAt(anchor_rect.center())
+                if not screen:
+                    screen = QGuiApplication.primaryScreen()
+
+                screen_geo = screen.availableGeometry()
                 settings = self.state_store.get("settings", {}).get("appearance", {})
                 min_height = settings.get("detail_min_height", 700)
 

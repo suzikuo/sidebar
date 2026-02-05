@@ -82,7 +82,7 @@ class ToolWindow(QWidget):
     def __init__(self, title, widget, parent=None):
         super().__init__()  # No parent to be a separate window
         self.setWindowTitle(title)
-        self.resize(1000, 800)
+        self.resize(600, 600)
 
         self.vLayout = QVBoxLayout(self)
         self.vLayout.setContentsMargins(0, 0, 0, 0)
