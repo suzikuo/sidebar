@@ -11,6 +11,7 @@ from qfluentwidgets import (
 from qframelesswindow import FramelessWindow
 
 from core.state_store import StateStore
+from ui.components.time_widget import VerticalTimeWidget
 
 from .window_behavior import WindowBehavior
 
@@ -49,6 +50,12 @@ class SidebarWindow(FramelessWindow):
         self.navigationInterface.setStyleSheet(
             "NavigationInterface { background: transparent; }"
         )
+
+        # Time Widget (Vertical)
+        self.timeWidget = VerticalTimeWidget(self)
+        self.vBoxLayout.addStretch(1)
+        self.vBoxLayout.addWidget(self.timeWidget)
+        self.vBoxLayout.addSpacing(20)  # Bottom margin
 
         # 2. Window Flags & Attributes
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
@@ -103,10 +110,20 @@ class SidebarWindow(FramelessWindow):
         settings = self.state_store.get("settings", {}).get("appearance", {})
         self.cached_opacity = settings.get("sidebar_opacity", 0.9)
 
+        is_light = settings.get("theme_mode") == "light"
         self.cached_bg_color = QColor(32, 32, 32)  # Dark theme base
-        if settings.get("theme_mode") == "light":
+        if is_light:
             self.cached_bg_color = QColor(255, 255, 255)
         self.cached_bg_color.setAlphaF(self.cached_opacity)
+
+        # Update TimeWidget theme and visibility
+        if hasattr(self, "timeWidget"):
+            # Check visibility setting
+            general_settings = self.state_store.get("settings", {}).get("general", {})
+            show_time = general_settings.get("show_time", True)
+            self.timeWidget.setVisible(show_time)
+
+
 
     def set_detail_window(self, window):
         """Set reference to detail window for coordinated hiding."""
@@ -120,15 +137,20 @@ class SidebarWindow(FramelessWindow):
         # Use cached values
         painter.setBrush(self.cached_bg_color)
 
-        if self.is_hidden:
-            settings = self.state_store.get("settings", {}).get("appearance", {})
-            border_color = settings.get("hidden_border_color", "#FF0000")
-            painter.setPen(QPen(QColor(border_color), 1))
-            rect = self.rect().adjusted(1, 1, -1, -1)
-            painter.drawRoundedRect(rect, 10, 10)
-        else:
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(self.rect(), 10, 10)
+        # Draw overall border (always visible)
+        settings = self.state_store.get("settings", {}).get("appearance", {})
+        
+        # Determine border color based on theme (light vs dark)
+        # Check if background is light (assuming light theme has light bg)
+        is_light_bg = self.cached_bg_color.lightness() > 128
+        default_border = "#C0C0C0" if is_light_bg else "#404040"
+        
+        border_color = settings.get("sidebar_border_color", default_border)
+        painter.setPen(QPen(QColor(border_color), 1))
+        
+        # Adjust rect to avoid clipping the border
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        painter.drawRoundedRect(rect, 10, 10)
 
     def _get_behavior(self, is_hidden=False):
         """Get window behavior based on state (hidden/visible)."""

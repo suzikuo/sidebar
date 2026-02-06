@@ -22,7 +22,7 @@
             "sidebar_height_percent": 0.2,
             "sidebar_hidden_height_percent": 0.2,
             "sidebar_y_offset": -205,
-            "hidden_border_color": "#0dff00",
+            "sidebar_border_color": "#0dff00",
             "detail_min_height": 609
         },
         "plugins": {

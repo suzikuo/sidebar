@@ -1,9 +1,9 @@
 from PySide6.QtCore import Qt, QTime, QTimer
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QLabel
+from qfluentwidgets import StrongBodyLabel
 
 
-class VerticalTimeWidget(QLabel):
+class VerticalTimeWidget(StrongBodyLabel):
     """
     A widget that displays the current time vertically.
     Designed for use in the sidebar when it's hidden/peeking.
@@ -13,10 +13,6 @@ class VerticalTimeWidget(QLabel):
         super().__init__(parent)
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("color: white; background: transparent;")
-
-        # Use a clean, modern font
-        font = QFont("Segoe UI", 10, QFont.Bold)
-        self.setFont(font)
 
         # Timer to update time every minute
         self.timer = QTimer(self)
@@ -32,7 +28,3 @@ class VerticalTimeWidget(QLabel):
         vertical_text = "\n".join(list(current_time))
         self.setText(vertical_text)
 
-    def set_theme(self, is_dark: bool):
-        """Update color based on theme."""
-        color = "white" if is_dark else "black"
-        self.setStyleSheet(f"color: {color}; background: transparent;")

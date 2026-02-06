@@ -98,6 +98,20 @@ class FluentSettingsCard(QWidget):
         )
         general_group.addSettingCard(self.notify_card)
 
+        # Show Time switch
+        self.time_card = SwitchSettingCard(
+            FluentIcon.DATE_TIME, "显示时间", "在侧边栏底部显示当前时间", parent=general_group
+        )
+        self.time_card.switchButton.setChecked(
+            self.settings_manager.get_setting("general", "show_time", True)
+        )
+        self.time_card.switchButton.checkedChanged.connect(
+            lambda checked: self.settings_manager.set_setting(
+                "general", "show_time", checked
+            )
+        )
+        general_group.addSettingCard(self.time_card)
+
         content_layout.addWidget(general_group)
 
         # === Appearance Settings Group ===
@@ -138,11 +152,11 @@ class FluentSettingsCard(QWidget):
         self.border_color_card = PushSettingCard(
             "选择颜色",
             FluentIcon.BRUSH,
-            "隐藏时边框颜色",
-            "设置侧边栏隐藏时的边缘颜色",
+            "边框颜色",
+            "设置侧边栏的边缘颜色",
             parent=appearance_group,
         )
-        self.border_color_card.clicked.connect(self._choose_hidden_border_color)
+        self.border_color_card.clicked.connect(self._choose_sidebar_border_color)
         appearance_group.addSettingCard(self.border_color_card)
 
         # Sidebar Height
@@ -358,20 +372,20 @@ class FluentSettingsCard(QWidget):
                 parent=self,
             )
 
-    def _choose_hidden_border_color(self):
+    def _choose_sidebar_border_color(self):
         """Open color picker for hidden sidebar border color."""
         from PySide6.QtWidgets import QColorDialog
         from qfluentwidgets import InfoBar, InfoBarPosition
 
         current_color = self.settings_manager.get_setting(
-            "appearance", "hidden_border_color", "#FF0000"
+            "appearance", "sidebar_border_color", "#FF0000"
         )
 
         color = QColorDialog.getColor(QColor(current_color), self, "选择隐藏边框颜色")
         if color.isValid():
             color_hex = color.name()
             self.settings_manager.set_setting(
-                "appearance", "hidden_border_color", color_hex
+                "appearance", "sidebar_border_color", color_hex
             )
 
             InfoBar.success(
