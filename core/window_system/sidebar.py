@@ -386,14 +386,12 @@ class SidebarWindow(FramelessWindow):
     def mousePressEvent(self, event):
         """Handle start of vertical dragging."""
         if event.button() == Qt.LeftButton:
-            self._is_dragging = True
+            enable_hover = self.state_store.get("settings", {}).get("general", {}).get("enable_mouse_hover", True)
+            if enable_hover:
+                self._is_dragging = True
+
             self._drag_start_y = event.globalPosition().y()
-            self._initial_y_offset = (
-                self.state_store.get("settings", {})
-                .get("appearance", {})
-                .get("sidebar_y_offset", 0)
-            )
-            # Temporarily stop hide timer while dragging
+            self._initial_y_offset = self.state_store.get("settings", {}).get("appearance", {}).get("sidebar_y_offset", 0)
             self.hide_timer.stop()
         super().mousePressEvent(event)
 
@@ -456,7 +454,13 @@ class SidebarWindow(FramelessWindow):
 
     def enterEvent(self, event):
         """Mouse enter: expand sidebar."""
-        self.expand()
+        # Check setting before expanding
+        enable_hover = self.state_store.get("settings", {}).get("general", {}).get("enable_mouse_hover", True)
+        # If already visible, we must ensure timer is stopped (call expand)
+        # If hidden, only expand if setting is enabled
+        if not self.is_hidden or enable_hover:
+            self.expand()
+            
         super().enterEvent(event)
 
     def leaveEvent(self, event):

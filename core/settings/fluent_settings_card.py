@@ -112,6 +112,23 @@ class FluentSettingsCard(QWidget):
         )
         general_group.addSettingCard(self.time_card)
 
+        # Mouse Hover switch
+        self.hover_card = SwitchSettingCard(
+            FluentIcon.MOVE,
+            "鼠标悬停显示",
+            "鼠标移入侧边栏区域时自动显示侧边栏。\n若关闭，则只能通过快捷键呼出。",
+            parent=general_group,
+        )
+        self.hover_card.switchButton.setChecked(
+            self.settings_manager.get_setting("general", "enable_mouse_hover", True)
+        )
+        self.hover_card.switchButton.checkedChanged.connect(
+            lambda checked: self.settings_manager.set_setting(
+                "general", "enable_mouse_hover", checked
+            )
+        )
+        general_group.addSettingCard(self.hover_card)
+
         content_layout.addWidget(general_group)
 
         # === Appearance Settings Group ===
