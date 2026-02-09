@@ -27,7 +27,7 @@ class WindowBehavior:
         screen_geometry: QRect,
         width: int = 280,
         collapsed_width: int = 48,
-        edge: str = "right",
+        edge: str = "left",
     ):
         self.screen_geometry = screen_geometry
         self.width = max(self.MIN_WIDTH, min(width, self.MAX_WIDTH))
@@ -35,31 +35,7 @@ class WindowBehavior:
         self.trigger_zone = 5  # Pixels from edge to trigger show
         self.edge = edge  # "left" or "right"
         self.is_left_edge = edge == "left"
-
-    def _validate_geometry(self, rect: QRect) -> QRect:
-        """
-        Validate and fix geometry to prevent UpdateLayeredWindowIndirect errors.
-        Ensures all dimensions are positive and within valid bounds.
-        """
-        # Boundary limits (exclusive)
-        screen_top = self.screen_geometry.top()
-        screen_bottom = self.screen_geometry.top() + self.screen_geometry.height()
-        screen_left = self.screen_geometry.left()
-        screen_right = self.screen_geometry.left() + self.screen_geometry.width()
-
-        x = max(screen_left, min(rect.x(), screen_right - self.MIN_WIDTH))
-        y = max(screen_top, min(rect.y(), screen_bottom - self.MIN_HEIGHT))
-
-        width = max(self.MIN_WIDTH, min(rect.width(), self.MAX_WIDTH))
-        height = max(self.MIN_HEIGHT, min(rect.height(), self.screen_geometry.height()))
-
-        # Ensure the window doesn't extend beyond screen bounds
-        if x + width > screen_right:
-            x = screen_right - width
-        if y + height > screen_bottom:
-            height = screen_bottom - y
-
-        return QRect(int(x), int(y), int(width), int(height))
+        self.is_top_edge = edge == "top"
 
     def get_hidden_geometry(self, peek_width: int = None) -> QRect:
         """
@@ -71,7 +47,7 @@ class WindowBehavior:
 
         if self.is_left_edge:
             rect = QRect(
-                self.screen_geometry.left(),
+                self.screen_geometry.left() - self.collapsed_width + peek_width,
                 self.screen_geometry.top(),
                 peek_width,
                 self.screen_geometry.height(),
@@ -116,6 +92,7 @@ class WindowBehavior:
                 width,
                 self.screen_geometry.height(),
             )
+
         else:
             rect = QRect(
                 self.screen_geometry.right() - width,
@@ -135,3 +112,32 @@ class WindowBehavior:
     def should_hide(self, mouse_pos: QPoint, sidebar_geometry: QRect) -> bool:
         """Checks if sidebar should hide based on mouse position."""
         return not sidebar_geometry.contains(mouse_pos)
+
+    def _validate_geometry(self, rect: QRect) -> QRect:
+        """
+        Validate and fix geometry to prevent UpdateLayeredWindowIndirect errors.
+        Ensures all dimensions are positive and within valid bounds.
+        """
+        return rect
+        # Boundary limits (exclusive)
+        screen_top = self.screen_geometry.top()
+        screen_bottom = self.screen_geometry.top() + self.screen_geometry.height()
+        screen_left = self.screen_geometry.left()
+        screen_right = self.screen_geometry.left() + self.screen_geometry.width()
+
+        x = max(screen_left, min(rect.x(), screen_right - self.MIN_WIDTH))
+        y = max(screen_top, min(rect.y(), screen_bottom - self.MIN_HEIGHT))
+        width = max(self.MIN_WIDTH, min(rect.width(), self.MAX_WIDTH))
+        height = max(self.MIN_HEIGHT, min(rect.height(), self.screen_geometry.height()))
+
+        # Ensure the window doesn't extend beyond screen bounds
+        if x + width > screen_right:
+            x = screen_right - width
+
+        if x < screen_left:
+            width = screen_left - x
+
+        if y + height > screen_bottom:
+            height = screen_bottom - y
+
+        return QRect(int(x), int(y), int(width), int(height))

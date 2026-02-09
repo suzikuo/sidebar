@@ -35,7 +35,7 @@ class SidebarWindow(FramelessWindow):
         super().__init__()
         self.state_store = state_store
         self.detail_window = None  # Logic coordination
-        self.peek_width = 1
+        self.peek_width = 2
 
         # 1. Setup UI
         # User requested to remove the "three bars" menu button
@@ -123,8 +123,6 @@ class SidebarWindow(FramelessWindow):
             show_time = general_settings.get("show_time", True)
             self.timeWidget.setVisible(show_time)
 
-
-
     def set_detail_window(self, window):
         """Set reference to detail window for coordinated hiding."""
         self.detail_window = window
@@ -139,15 +137,15 @@ class SidebarWindow(FramelessWindow):
 
         # Draw overall border (always visible)
         settings = self.state_store.get("settings", {}).get("appearance", {})
-        
+
         # Determine border color based on theme (light vs dark)
         # Check if background is light (assuming light theme has light bg)
         is_light_bg = self.cached_bg_color.lightness() > 128
         default_border = "#C0C0C0" if is_light_bg else "#404040"
-        
+
         border_color = settings.get("sidebar_border_color", default_border)
         painter.setPen(QPen(QColor(border_color), 1))
-        
+
         # Adjust rect to avoid clipping the border
         rect = self.rect().adjusted(1, 1, -1, -1)
         painter.drawRoundedRect(rect, 10, 10)
@@ -386,12 +384,20 @@ class SidebarWindow(FramelessWindow):
     def mousePressEvent(self, event):
         """Handle start of vertical dragging."""
         if event.button() == Qt.LeftButton:
-            enable_hover = self.state_store.get("settings", {}).get("general", {}).get("enable_mouse_hover", True)
+            enable_hover = (
+                self.state_store.get("settings", {})
+                .get("general", {})
+                .get("enable_mouse_hover", True)
+            )
             if enable_hover:
                 self._is_dragging = True
 
             self._drag_start_y = event.globalPosition().y()
-            self._initial_y_offset = self.state_store.get("settings", {}).get("appearance", {}).get("sidebar_y_offset", 0)
+            self._initial_y_offset = (
+                self.state_store.get("settings", {})
+                .get("appearance", {})
+                .get("sidebar_y_offset", 0)
+            )
             self.hide_timer.stop()
         super().mousePressEvent(event)
 
@@ -443,8 +449,10 @@ class SidebarWindow(FramelessWindow):
         """Collapse the sidebar to peek mode."""
         # Double check mouse position or other logic if needed, but this is a forced collapse
         self.navigationInterface.hide()
+        # self.hide()
         self.behavior = self._get_behavior(is_hidden=True)
         geom = self.behavior.get_hidden_geometry(peek_width=self.peek_width)
+        print(geom)
         self.setGeometry(geom)
         self.is_hidden = True
 
@@ -455,12 +463,16 @@ class SidebarWindow(FramelessWindow):
     def enterEvent(self, event):
         """Mouse enter: expand sidebar."""
         # Check setting before expanding
-        enable_hover = self.state_store.get("settings", {}).get("general", {}).get("enable_mouse_hover", True)
+        enable_hover = (
+            self.state_store.get("settings", {})
+            .get("general", {})
+            .get("enable_mouse_hover", True)
+        )
         # If already visible, we must ensure timer is stopped (call expand)
         # If hidden, only expand if setting is enabled
         if not self.is_hidden or enable_hover:
             self.expand()
-            
+
         super().enterEvent(event)
 
     def leaveEvent(self, event):
