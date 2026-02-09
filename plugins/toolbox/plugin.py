@@ -23,6 +23,7 @@ class ToolboxPlugin(PluginBase):
     def get_card_widget(self) -> QWidget:
         if self.ui_widget is None:
             self.ui_widget = ToolboxWidget()
+            self.ui_widget.set_context(self.context)
         return self.ui_widget
 
     def get_icon(self):

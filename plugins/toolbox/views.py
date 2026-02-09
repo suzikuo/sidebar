@@ -138,6 +138,9 @@ class ToolboxWidget(QWidget):
 
         self._load_tools()
 
+    def set_context(self, context):
+        self.context = context
+
     def _load_tools(self):
         """Dynamically discover and load tools from the features directory."""
         import importlib
@@ -202,7 +205,7 @@ class ToolboxWidget(QWidget):
             tool_widget = feature.create_widget()
             window = ToolWindow(feature.name, tool_widget)
             window.show()
-
+            self.context.close_detail_view()
             self._open_windows.append(window)
             window.setAttribute(Qt.WA_DeleteOnClose)
             window.destroyed.connect(
