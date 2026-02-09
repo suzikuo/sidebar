@@ -34,7 +34,9 @@ class SettingsManager(QObject):
             "font_size": 13,
             "font_weight": "normal",  # 'light', 'normal', 'medium', 'bold'
             "accent_color": "#FF6B9D",
-            "sidebar_opacity": 0.9,  # 0.1 to 1.0
+            "peek_width": 2,  # 1 to 10 pixels
+            "sidebar_bg_opacity": 0.9,  # 0.1 to 1.0
+            "detail_bg_opacity": 0.9,  # 0.1 to 1.0
             "sidebar_height_percent": 0.8,  # 0.2 to 1.0
             "sidebar_hidden_height_percent": 0.8,  # 0.2 to 1.0
             "sidebar_y_offset": 0,  # pixels from center
@@ -68,6 +70,22 @@ class SettingsManager(QObject):
         self.settings = {}
         for category, values in self.DEFAULTS.items():
             self.settings[category] = {**values, **stored_settings.get(category, {})}
+
+        # Migrate old settings to new format
+        self._migrate_settings()
+
+    def _migrate_settings(self):
+        """Migrate old settings to new format."""
+        appearance = self.settings.get("appearance", {})
+
+        # Migrate old sidebar_opacity to new separate settings
+        if "sidebar_opacity" in appearance and "sidebar_bg_opacity" not in appearance:
+            old_opacity = appearance["sidebar_opacity"]
+            appearance["sidebar_bg_opacity"] = old_opacity
+            appearance["detail_bg_opacity"] = old_opacity
+            # Remove old setting
+            del appearance["sidebar_opacity"]
+            self._save_settings()
 
     def get_setting(self, category: str, key: str, default=None):
         """Get a specific setting value."""

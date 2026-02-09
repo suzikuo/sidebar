@@ -2,11 +2,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon, TransparentToolButton
-from qframelesswindow import FramelessWindow
 
 from core.state_store import StateStore
 from core.ui_kernel.theme_engine import ThemeEngine
 from core.ui_kernel.view_host.card_lifecycle import CardLifecycle
+
+from .FramelessWindow import FramelessWindow
 
 
 class DetailWindow(FramelessWindow):
@@ -22,7 +23,14 @@ class DetailWindow(FramelessWindow):
         # Window attributes
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground)
         self.setWindowTitle("Agile Tiles - Detail")
+
+        # Enable window resizing
+        self.setResizeEnabled(True)
+
+        # Set minimum size to ensure usability
+        self.setMinimumSize(400, 300)
 
         # Setup UI
         self.vBoxLayout = QVBoxLayout(self)
@@ -62,7 +70,7 @@ class DetailWindow(FramelessWindow):
     def _update_style(self):
         """Cache style settings to avoid reading state_store in paintEvent."""
         settings = self.state_store.get("settings", {}).get("appearance", {})
-        self.cached_opacity = settings.get("sidebar_opacity", 0.9)
+        self.cached_opacity = settings.get("detail_bg_opacity", 0.9)
 
         self.cached_bg_color = QColor(32, 32, 32)  # Dark theme base
         if settings.get("theme_mode") == "light":
@@ -73,6 +81,9 @@ class DetailWindow(FramelessWindow):
         """Paint background with configured opacity."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+
+        # Clear background and replace with current opacity
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
 
         # Use cached values
         painter.setBrush(self.cached_bg_color)
@@ -121,21 +132,8 @@ class DetailWindow(FramelessWindow):
         if plugin_id in self.plugin_widgets:
             self.stacked_widget.setCurrentIndex(self.plugin_widgets[plugin_id])
 
-            # Position next to sidebar
+            # Position relative to sidebar
             if anchor_rect:
-                # anchor_rect is sidebar geometry
-                width = 500  # Default width
-
-                # Check sidebar position (Left vs Right)
-                # If sidebar left is near 0, it's on the Left.
-                if anchor_rect.left() < 50:
-                    # Sidebar is Left -> Detail goes to Right
-                    x = anchor_rect.right()
-                else:
-                    # Sidebar is Right -> Detail goes to Left
-                    x = anchor_rect.left() - width
-
-                # Vertical positioning
                 from PySide6.QtGui import QGuiApplication
 
                 # Determine screen based on anchor_rect (sidebar)
@@ -145,23 +143,49 @@ class DetailWindow(FramelessWindow):
 
                 screen_geo = screen.availableGeometry()
                 settings = self.state_store.get("settings", {}).get("appearance", {})
-                min_height = settings.get("detail_min_height", 700)
+                sidebar_position = settings.get("sidebar_position", "right")
 
-                # Start with anchor top
-                y = anchor_rect.top()
-                height = max(anchor_rect.height(), min_height)
+                # Check if sidebar is at top
+                if sidebar_position == "top" or anchor_rect.top() < 50:
+                    # Sidebar is at top -> Detail goes below
+                    width = anchor_rect.width()  # Match sidebar width
+                    min_height = settings.get("detail_min_height", 700)
 
-                # Ensure bottom doesn't exceed screen bottom
-                if y + height > screen_geo.bottom():
-                    # Shift up to fit
-                    y = screen_geo.bottom() - height
+                    x = anchor_rect.left()
+                    y = anchor_rect.bottom()
+                    height = min(min_height, screen_geo.bottom() - y)
 
-                    # If shifting up makes it go off top, clamp to top and reduce height
-                    if y < screen_geo.top():
-                        y = screen_geo.top()
-                        height = screen_geo.height()
+                    self.setGeometry(x, y, width, height)
+                else:
+                    # Sidebar is left/right -> Detail goes beside
+                    width = 500  # Default width
 
-                self.setGeometry(x, y, width, height)
+                    # Check sidebar position (Left vs Right)
+                    if anchor_rect.left() < 50:
+                        # Sidebar is Left -> Detail goes to Right
+                        x = anchor_rect.right()
+                    else:
+                        # Sidebar is Right -> Detail goes to Left
+                        x = anchor_rect.left() - width
+
+                    # Vertical positioning
+                    min_height = settings.get("detail_min_height", 700)
+
+                    # Start with anchor top
+                    y = anchor_rect.top()
+                    height = max(anchor_rect.height(), min_height)
+
+                    # Ensure bottom doesn't exceed screen bottom
+                    if y + height > screen_geo.bottom():
+                        # Shift up to fit
+                        y = screen_geo.bottom() - height
+
+                        # If shifting up makes it go off top, clamp to top and reduce height
+                        if y < screen_geo.top():
+                            y = screen_geo.top()
+                            height = screen_geo.height()
+
+                    self.setGeometry(x, y, width, height)
 
             self.show()
             self.activateWindow()

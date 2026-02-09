@@ -11,9 +11,9 @@ import os
 import sys
 
 from PySide6.QtCore import QObject, Slot  # noqa: E402
+from PySide6.QtGui import QAction, QFont  # noqa: E402
 
 # STEP 1: Create QApplication FIRST - BEFORE any other imports
-from PySide6.QtGui import QAction, QFont  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 # STEP 2: Now import everything else AFTER QApplication exists
@@ -106,11 +106,7 @@ class AgileTilesApp:
         self.sidebar_window.set_detail_window(self.detail_window)
 
         # When sidebar item clicked -> Show corresponding content in Detail Window (Open Detail)
-        self.sidebar_window.plugin_selected.connect(
-            lambda pid: self.detail_window.show_plugin(
-                pid, self.sidebar_window.geometry_rect
-            )
-        )
+        self.sidebar_window.plugin_selected.connect(self._handle_plugin_selection)
 
         # When sidebar item left-clicked -> Perform quick action OR show detail
         self.sidebar_window.plugin_action_triggered.connect(self._handle_plugin_action)
@@ -249,11 +245,15 @@ class AgileTilesApp:
             "appearance", "font_family", "Segoe UI"
         )
         font_size = self.settings_manager.get_setting("appearance", "font_size", 13)
+        # Ensure font size is valid (must be > 0)
+        if not isinstance(font_size, int) or font_size <= 0:
+            font_size = 13
         self.theme_engine.set_font(font_family, font_size)
 
         # Create and apply global font
         font = QFont(font_family)
-        font.setPixelSize(font_size)
+
+        font.setPointSize(font_size)
         self.app.setFont(font)
 
         # Apply accent color to theme engine
@@ -301,6 +301,7 @@ class AgileTilesApp:
     def _do_activate_plugin(self, plugin_id):
         """Actual activation logic."""
         self.show_window()
+        self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
         # Open the specific plugin
         # We need to simulate a click or just call show_plugin
         # Also need sidebar geometry
@@ -312,10 +313,16 @@ class AgileTilesApp:
         self.sidebar_window.remove_item(plugin_id)
         self.detail_window.remove_plugin_interface(plugin_id)
 
+    def _handle_plugin_selection(self, plugin_id: str):
+        """Handle formal 'Selection' (e.g. from context menu)."""
+        self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
+        self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
+
     def _handle_plugin_action(self, plugin_id: str):
         """Handle sidebar left-click on a plugin."""
         # 1. Special case for core settings
         if plugin_id == "settings":
+            self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
             self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
             return
 
@@ -335,6 +342,7 @@ class AgileTilesApp:
 
         # 4. If not handled, show the detail window
         if not handled:
+            self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
             self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
 
     def _on_sidebar_context_menu(self, plugin_id: str, menu):

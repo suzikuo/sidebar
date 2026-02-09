@@ -1,6 +1,6 @@
 from PySide6.QtCore import QEvent, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
-from PySide6.QtWidgets import QVBoxLayout
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
     FluentIcon,
@@ -8,15 +8,15 @@ from qfluentwidgets import (
     NavigationItemPosition,
     RoundMenu,
 )
-from qframelesswindow import FramelessWindow
 
 from core.state_store import StateStore
+from core.window_system.horizontal_navigation import HorizontalNavigationInterface
 from ui.components.time_widget import VerticalTimeWidget
 
 from .window_behavior import WindowBehavior
 
 
-class SidebarWindow(FramelessWindow):
+class SidebarWindow(QWidget):
     """
     Independent Sidebar Window.
     - Hosts the NavigationInterface (Icons).
@@ -35,44 +35,84 @@ class SidebarWindow(FramelessWindow):
         super().__init__()
         self.state_store = state_store
         self.detail_window = None  # Logic coordination
-        self.peek_width = 2
 
-        # 1. Setup UI
-        # User requested to remove the "three bars" menu button
-        self.navigationInterface = NavigationInterface(
-            self, showMenuButton=False, showReturnButton=False
-        )
+        # Get peek_width from settings
+        settings = self.state_store.get("settings", {}).get("appearance", {})
+        self.peek_width = settings.get("peek_width", 2)
 
-        self.vBoxLayout = QVBoxLayout(self)
-        self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
-        self.vBoxLayout.addWidget(self.navigationInterface)
-        # Ensure NavigationInterface doesn't paint over our custom background
-        self.navigationInterface.setStyleSheet(
-            "NavigationInterface { background: transparent; }"
-        )
+        # Determine edge position from settings BEFORE creating layout
+        settings = self.state_store.get("settings", {}).get("appearance", {})
+        self.edge = settings.get("sidebar_position", "right")
 
-        # Time Widget (Vertical)
-        self.timeWidget = VerticalTimeWidget(self)
-        self.vBoxLayout.addStretch(1)
-        self.vBoxLayout.addWidget(self.timeWidget)
-        self.vBoxLayout.addSpacing(20)  # Bottom margin
+        # 1. Setup UI based on edge position
+        if self.edge == "top":
+            self.navigationInterface = HorizontalNavigationInterface(
+                self, showMenuButton=False, showReturnButton=False
+            )
+
+            self.vBoxLayout = QHBoxLayout(self)
+            self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
+            self.vBoxLayout.addWidget(self.navigationInterface)
+
+            # Add time widget below navigation interface
+            self.timeWidget = VerticalTimeWidget(self)
+            self.timeWidget.set_vertical()
+            self.vBoxLayout.addStretch(1)
+            self.vBoxLayout.addWidget(self.timeWidget)
+            self.vBoxLayout.addSpacing(20)  # Bottom margin
+
+        else:
+            # Vertical layout for left/right position - use NavigationInterface
+            self.navigationInterface = NavigationInterface(
+                self, showMenuButton=False, showReturnButton=False
+            )
+
+            self.vBoxLayout = QVBoxLayout(self)
+            self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
+            self.vBoxLayout.addWidget(self.navigationInterface)
+
+            self.timeWidget = VerticalTimeWidget(self)
+            self.timeWidget.set_horizontal()
+            self.vBoxLayout.addStretch(1)
+            self.vBoxLayout.addWidget(self.timeWidget)
+            self.vBoxLayout.addSpacing(20)  # Bottom margin
+
+        # Force transparent background on all child widgets
+        self.navigationInterface.setStyleSheet("""
+            NavigationInterface, HorizontalNavigationInterface, QWidget, QScrollArea, QFrame {
+                background: transparent;
+                background-color: transparent;
+            }
+            
+            ToolButton[isSelected=true] {
+                background-color: rgba(255, 107, 157, 0.2);
+                border-bottom: 2px solid #FF6B9D;
+            }
+        """)
 
         # 2. Window Flags & Attributes
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
-        # 3. Behavior Logic
-        self.setResizeEnabled(False)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+
+        # 3. Behavior Logic
+        # self.setResizeEnabled(False)
         self.setMouseTracking(True)
         # Ensure window can shrink below children's minimum size if needed
-        self.setMinimumHeight(0)
+        if self.edge == "top":
+            self.setMinimumWidth(0)
+        else:
+            self.setMinimumHeight(0)
         self.hide_timer = QTimer(self)
         self.hide_timer.setSingleShot(True)
         self.hide_timer.timeout.connect(self._perform_hide)
 
-        # Scrolling/Dragging state
+        # Scrolling/Dragging state (supports both vertical and horizontal)
         self._is_dragging = False
         self._drag_start_y = 0
+        self._drag_start_x = 0
         self._initial_y_offset = 0
+        self._initial_x_offset = 0
 
         # 4. Initial State
         self.is_hidden = True
@@ -87,7 +127,7 @@ class SidebarWindow(FramelessWindow):
 
         self.setGeometry(self.behavior.get_hidden_geometry(peek_width=self.peek_width))
 
-        self.titleBar.hide()
+        # self.titleBar.hide()
 
     def update_style(self):
         """Public method to refresh styles and repaint."""
@@ -108,16 +148,18 @@ class SidebarWindow(FramelessWindow):
     def _update_style(self):
         """Cache style settings to avoid reading state_store in paintEvent."""
         settings = self.state_store.get("settings", {}).get("appearance", {})
-        self.cached_opacity = settings.get("sidebar_opacity", 0.9)
+        self.cached_opacity = settings.get("sidebar_bg_opacity", 0.9)
 
         is_light = settings.get("theme_mode") == "light"
         self.cached_bg_color = QColor(32, 32, 32)  # Dark theme base
         if is_light:
             self.cached_bg_color = QColor(255, 255, 255)
+        # Only set alpha on background color, not the entire window
+        # This keeps content (icons, text) opaque while background is transparent
         self.cached_bg_color.setAlphaF(self.cached_opacity)
 
-        # Update TimeWidget theme and visibility
-        if hasattr(self, "timeWidget"):
+        # Update TimeWidget theme and visibility (only if it exists)
+        if hasattr(self, "timeWidget") and self.timeWidget:
             # Check visibility setting
             general_settings = self.state_store.get("settings", {}).get("general", {})
             show_time = general_settings.get("show_time", True)
@@ -128,33 +170,35 @@ class SidebarWindow(FramelessWindow):
         self.detail_window = window
 
     def paintEvent(self, event):
-        """Paint background with configured opacity."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # Use cached values
-        painter.setBrush(self.cached_bg_color)
+        # 1️⃣ 先清空窗口缓冲区（这是 Source 的唯一正确用途）
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillRect(self.rect(), Qt.transparent)
 
-        # Draw overall border (always visible)
+        # 2️⃣ 切回正常混合模式
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+
+        # 3️⃣ 画半透明背景
+        bg = QColor(self.cached_bg_color)
+        # 这里用 cached_bg_color 自带的 alpha 就行
+        painter.setBrush(bg)
+
+        # 4️⃣ 边框（不透明 or 轻微 alpha 都 OK）
         settings = self.state_store.get("settings", {}).get("appearance", {})
-
-        # Determine border color based on theme (light vs dark)
-        # Check if background is light (assuming light theme has light bg)
-        is_light_bg = self.cached_bg_color.lightness() > 128
+        is_light_bg = bg.lightness() > 128
         default_border = "#C0C0C0" if is_light_bg else "#404040"
-
         border_color = settings.get("sidebar_border_color", default_border)
+
         painter.setPen(QPen(QColor(border_color), 1))
 
-        # Adjust rect to avoid clipping the border
         rect = self.rect().adjusted(1, 1, -1, -1)
         painter.drawRoundedRect(rect, 10, 10)
 
     def _get_behavior(self, is_hidden=False):
         """Get window behavior based on state (hidden/visible)."""
         # 1. Determine which screen we are on
-        # If we have a geometry, use the screen that contains our center
-        # Otherwise fall back to primary screen
         current_geo = self.geometry()
         screen = QGuiApplication.screenAt(current_geo.center())
         if not screen:
@@ -164,37 +208,67 @@ class SidebarWindow(FramelessWindow):
 
         # 2. Read settings
         settings = self.state_store.get("settings", {}).get("appearance", {})
-        y_offset_px = settings.get("sidebar_y_offset", 0)
         edge = settings.get("sidebar_position", "right")
 
-        if is_hidden:
-            height_percent = settings.get("sidebar_hidden_height_percent", 0.8)
+        # 3. Calculate dimensions based on edge position
+        if edge == "top":
+            # Horizontal layout for top edge
+            x_offset_px = settings.get("sidebar_x_offset", 0)
+
+            # In horizontal mode, use height_percent settings to control width
+            # This makes the settings UI consistent (height slider controls the variable dimension)
+            if is_hidden:
+                width_percent = settings.get("sidebar_hidden_height_percent", 0.8)
+            else:
+                width_percent = settings.get("sidebar_height_percent", 0.8)
+
+            width = int(screen_geometry.width() * width_percent)
+
+            # Center horizontally + offset
+            base_x = (screen_geometry.width() - width) // 2
+            final_x = screen_geometry.left() + base_x + x_offset_px
+
+            # Clamp to keep on screen
+            final_x = max(
+                screen_geometry.left(), min(final_x, screen_geometry.right() - width)
+            )
+
+            virtual_screen = QRect(
+                final_x,
+                screen_geometry.top(),
+                width,
+                screen_geometry.height(),
+            )
         else:
-            height_percent = settings.get("sidebar_height_percent", 0.8)
+            # Vertical layout for left/right edge
+            y_offset_px = settings.get("sidebar_y_offset", 0)
 
-        # 3. Calculate height
-        height = int(screen_geometry.height() * height_percent)
+            if is_hidden:
+                height_percent = settings.get("sidebar_hidden_height_percent", 0.8)
+            else:
+                height_percent = settings.get("sidebar_height_percent", 0.8)
 
-        # 4. Construct a "virtual screen" rect that is centered vertically + offset
-        # We calculate the Y relative to the screen's top
-        base_y = (screen_geometry.height() - height) // 2
-        final_y = screen_geometry.top() + base_y + y_offset_px
+            height = int(screen_geometry.height() * height_percent)
 
-        # Clamp final_y to keep window on screen vertically
-        final_y = max(
-            screen_geometry.top(), min(final_y, screen_geometry.bottom() - height)
-        )
+            # Center vertically + offset
+            base_y = (screen_geometry.height() - height) // 2
+            final_y = screen_geometry.top() + base_y + y_offset_px
 
-        virtual_screen = QRect(
-            screen_geometry.left(),
-            final_y,
-            screen_geometry.width(),
-            height,
-        )
+            # Clamp to keep on screen
+            final_y = max(
+                screen_geometry.top(), min(final_y, screen_geometry.bottom() - height)
+            )
+
+            virtual_screen = QRect(
+                screen_geometry.left(),
+                final_y,
+                screen_geometry.width(),
+                height,
+            )
 
         return WindowBehavior(
             screen_geometry=virtual_screen,
-            width=48,  # Sidebar is fixed width (icon strip)
+            width=48,
             collapsed_width=48,
             edge=edge,
         )
@@ -222,6 +296,8 @@ class SidebarWindow(FramelessWindow):
         tooltip: str = None,
     ):
         """Add item to navigation."""
+
+        # For left/right position, use NavigationInterface
         item = self.navigationInterface.addItem(
             routeKey=route_key,
             icon=icon,
@@ -232,7 +308,6 @@ class SidebarWindow(FramelessWindow):
         item.setToolTip(tooltip or text)
         self.items[route_key] = item
 
-        # Connect signals
         # Install event filter to catch right clicks
         item.installEventFilter(self)
 
@@ -382,7 +457,7 @@ class SidebarWindow(FramelessWindow):
         menu.exec(pos)
 
     def mousePressEvent(self, event):
-        """Handle start of vertical dragging."""
+        """Handle start of dragging (vertical or horizontal based on position)."""
         if event.button() == Qt.LeftButton:
             enable_hover = (
                 self.state_store.get("settings", {})
@@ -392,27 +467,37 @@ class SidebarWindow(FramelessWindow):
             if enable_hover:
                 self._is_dragging = True
 
+            # Store both X and Y positions
             self._drag_start_y = event.globalPosition().y()
-            self._initial_y_offset = (
-                self.state_store.get("settings", {})
-                .get("appearance", {})
-                .get("sidebar_y_offset", 0)
-            )
+            self._drag_start_x = event.globalPosition().x()
+
+            settings = self.state_store.get("settings", {}).get("appearance", {})
+            self._initial_y_offset = settings.get("sidebar_y_offset", 0)
+            self._initial_x_offset = settings.get("sidebar_x_offset", 0)
+
             self.hide_timer.stop()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        """Handle vertical dragging and position update."""
+        """Handle dragging and position update (vertical or horizontal based on position)."""
         if self._is_dragging:
-            delta_y = int(event.globalPosition().y() - self._drag_start_y)
-            new_offset = self._initial_y_offset + delta_y
+            settings = self.state_store.get("settings", {}).get("appearance", {})
+            edge = settings.get("sidebar_position", "right")
 
-            # Update settings immediately for smooth visual feedback
-            # OR just update the geometry directly. Updating settings and calling update_style
-            # might be slightly heavier but ensures consistency.
-            self.state_store.get("settings", {})["appearance"]["sidebar_y_offset"] = (
-                new_offset
-            )
+            if edge == "top":
+                # Horizontal dragging for top position
+                delta_x = int(event.globalPosition().x() - self._drag_start_x)
+                new_offset = self._initial_x_offset + delta_x
+                self.state_store.get("settings", {})["appearance"][
+                    "sidebar_x_offset"
+                ] = new_offset
+            else:
+                # Vertical dragging for left/right position
+                delta_y = int(event.globalPosition().y() - self._drag_start_y)
+                new_offset = self._initial_y_offset + delta_y
+                self.state_store.get("settings", {})["appearance"][
+                    "sidebar_y_offset"
+                ] = new_offset
 
             # Update behavior and geometry
             self.behavior = self._get_behavior(is_hidden=self.is_hidden)
@@ -452,7 +537,6 @@ class SidebarWindow(FramelessWindow):
         # self.hide()
         self.behavior = self._get_behavior(is_hidden=True)
         geom = self.behavior.get_hidden_geometry(peek_width=self.peek_width)
-        print(geom)
         self.setGeometry(geom)
         self.is_hidden = True
 

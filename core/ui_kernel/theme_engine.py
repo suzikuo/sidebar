@@ -28,8 +28,12 @@ class ThemeEngine:
         """Set application font."""
         if family:
             self.font_family = family
-        if size:
-            self.font_size = size
+        if size is not None:
+            # Ensure font size is valid (must be > 0)
+            if isinstance(size, int) and size > 0:
+                self.font_size = size
+            else:
+                self.font_size = 13  # Default fallback
 
     def set_accent_color(self, color: str):
         """Set accent color."""

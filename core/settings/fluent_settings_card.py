@@ -100,7 +100,10 @@ class FluentSettingsCard(QWidget):
 
         # Show Time switch
         self.time_card = SwitchSettingCard(
-            FluentIcon.DATE_TIME, "显示时间", "在侧边栏底部显示当前时间", parent=general_group
+            FluentIcon.DATE_TIME,
+            "显示时间",
+            "在侧边栏底部显示当前时间",
+            parent=general_group,
         )
         self.time_card.switchButton.setChecked(
             self.settings_manager.get_setting("general", "show_time", True)
@@ -137,6 +140,11 @@ class FluentSettingsCard(QWidget):
         # Theme mode - using custom card with ComboBox
         self._add_theme_card(appearance_group, ComboBox, FluentIcon, BodyLabel)
 
+        # Sidebar Position - using custom card with ComboBox
+        self._add_sidebar_position_card(
+            appearance_group, ComboBox, FluentIcon, BodyLabel
+        )
+
         # Accent color
         self.color_card = PushSettingCard(
             "选择颜色",
@@ -148,20 +156,55 @@ class FluentSettingsCard(QWidget):
         self.color_card.clicked.connect(self._choose_accent_color)
         appearance_group.addSettingCard(self.color_card)
 
-        # Sidebar Opacity
+        # Peek Width
+        self._add_slider_card(
+            group=appearance_group,
+            icon=FluentIcon.LAYOUT,
+            title="隐藏边框宽度",
+            content="侧边栏隐藏时显示的边框宽度（像素）",
+            min_val=1,
+            max_val=10,
+            value=self.settings_manager.get_setting("appearance", "peek_width", 2),
+            callback=lambda val: self.settings_manager.set_setting(
+                "appearance", "peek_width", val
+            ),
+        )
+
+        # Sidebar Background Opacity
         self._add_slider_card(
             group=appearance_group,
             icon=FluentIcon.TRANSPARENT,
-            title="背景透明度",
-            content="侧边栏和详情页的背景不透明度",
-            min_val=10,
+            title="侧边栏不透明度",
+            content="侧边栏背景的不透明度（值越大越不透明）",
+            min_val=0,
             max_val=100,
             value=int(
-                self.settings_manager.get_setting("appearance", "sidebar_opacity", 0.9)
+                self.settings_manager.get_setting(
+                    "appearance", "sidebar_bg_opacity", 0.9
+                )
                 * 100
             ),
             callback=lambda val: self.settings_manager.set_setting(
-                "appearance", "sidebar_opacity", val / 100.0
+                "appearance", "sidebar_bg_opacity", val / 100.0
+            ),
+        )
+
+        # Detail Window Background Opacity
+        self._add_slider_card(
+            group=appearance_group,
+            icon=FluentIcon.TRANSPARENT,
+            title="详情页不透明度",
+            content="详情页背景的不透明度（值越大越不透明）",
+            min_val=10,
+            max_val=100,
+            value=int(
+                self.settings_manager.get_setting(
+                    "appearance", "detail_bg_opacity", 0.9
+                )
+                * 100
+            ),
+            callback=lambda val: self.settings_manager.set_setting(
+                "appearance", "detail_bg_opacity", val / 100.0
             ),
         )
 
@@ -335,6 +378,67 @@ class FluentSettingsCard(QWidget):
         h_layout.addWidget(self.theme_combo)
 
         parent_group.addSettingCard(card)
+
+    def _add_sidebar_position_card(self, parent_group, ComboBox, FluentIcon, BodyLabel):
+        """Add a custom sidebar position selection card using CardWidget."""
+        from qfluentwidgets import IconWidget
+
+        # Create custom card
+        card = CardWidget(parent_group)
+        card.setFixedHeight(70)
+
+        h_layout = QHBoxLayout(card)
+        h_layout.setContentsMargins(20, 12, 20, 12)
+
+        # Icon
+        icon_widget = IconWidget(FluentIcon.ALIGNMENT, card)
+        icon_widget.setFixedSize(20, 20)
+        h_layout.addWidget(icon_widget)
+
+        # Text
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        title_label = BodyLabel("侧边栏位置", card)
+        content_label = BodyLabel("选择侧边栏显示的位置", card)
+        content_label.setStyleSheet("color: gray; font-size: 12px;")
+        text_layout.addWidget(title_label)
+        text_layout.addWidget(content_label)
+        h_layout.addLayout(text_layout)
+
+        h_layout.addStretch(1)
+
+        # ComboBox
+        self.position_combo = ComboBox(card)
+        self.position_combo.addItems(["左侧", "右侧", "顶部"])
+        current_position = self.settings_manager.get_setting(
+            "appearance", "sidebar_position", "right"
+        )
+        position_index = {"left": 0, "right": 1, "top": 2}.get(current_position, 1)
+        self.position_combo.setCurrentIndex(position_index)
+        self.position_combo.currentIndexChanged.connect(self._on_position_changed)
+        h_layout.addWidget(self.position_combo)
+
+        parent_group.addSettingCard(card)
+
+    def _on_position_changed(self, index: int):
+        """Handle sidebar position change."""
+        from qfluentwidgets import InfoBar, InfoBarPosition
+
+        position_map = {0: "left", 1: "right", 2: "top"}
+        position_name = position_map.get(index, "right")
+        self.settings_manager.set_setting(
+            "appearance", "sidebar_position", position_name
+        )
+
+        InfoBar.success(
+            title="位置已更改",
+            content=f"侧边栏位置已设置为{['左侧', '右侧', '顶部'][index]}",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self,
+        )
 
     def _on_theme_changed(self, index: int):
         """Handle theme change."""
