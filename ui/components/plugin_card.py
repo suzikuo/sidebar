@@ -3,6 +3,7 @@ from typing import Any, Dict
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel
 
+from core.logger import logger
 from core.ui_kernel.theme_engine import ThemeEngine
 from core.ui_kernel.view_host.card_lifecycle import CardLifecycle
 from ui.components.base_widget import BaseWidget
@@ -44,10 +45,10 @@ class PluginCard(BaseWidget, CardLifecycle):
 
     # CardLifecycle Implementation
     def on_show(self):
-        print(f"PluginCard '{self.header.text()}' is now visible.")
+        logger.debug(f"PluginCard '{self.header.text()}' is now visible.")
 
     def on_hide(self):
-        print(f"PluginCard '{self.header.text()}' is now hidden.")
+        logger.debug(f"PluginCard '{self.header.text()}' is now hidden.")
 
     def save_state(self) -> Dict[str, Any]:
         return {"title": self.header.text()}

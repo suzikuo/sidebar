@@ -2,6 +2,8 @@ import json
 import os
 from typing import Any, Dict, Optional
 
+from core.logger import logger
+
 
 class ManifestLoader:
     """Scans and validates plugin manifest.json files."""
@@ -21,12 +23,14 @@ class ManifestLoader:
             # Basic validation
             for field in ManifestLoader.REQUIRED_FIELDS:
                 if field not in manifest:
-                    print(
+                    logger.error(
                         f"Manifest at {plugin_dir} is missing required field: {field}"
                     )
                     return None
 
             return manifest
         except Exception as e:
-            print(f"Failed to parse manifest at {plugin_dir}: {e}")
+            logger.error(
+                f"Failed to parse manifest at {plugin_dir}: {e}", exc_info=True
+            )
             return None

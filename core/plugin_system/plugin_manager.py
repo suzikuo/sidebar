@@ -2,6 +2,7 @@ import os
 
 from PySide6.QtCore import QObject, Signal
 
+from core.logger import logger
 from core.plugin_system.event_bus import EventBus
 from core.plugin_system.manifest_loader import ManifestLoader
 from core.plugin_system.plugin_runtime import PluginRuntime
@@ -75,9 +76,9 @@ class PluginManager(QObject):
             if self.runtime.load_plugin(manifest, item_path):
                 instance = self.runtime._loaded_plugins[plugin_id]
                 self.plugin_loaded.emit(plugin_id, instance)
-                print(f"Successfully loaded plugin: {plugin_id}")
+                logger.info(f"Successfully loaded plugin: {plugin_id}")
         else:
-            print(f"Plugin {plugin_id} is disabled, skipping load")
+            logger.info(f"Plugin {plugin_id} is disabled, skipping load")
 
     def get_plugin_order(self):
         """Get the defined plugin order, appending new discoveries."""
@@ -128,7 +129,7 @@ class PluginManager(QObject):
     def reload_plugin(self, plugin_id: str):
         """Reload a specific plugin."""
         if plugin_id in self._manifests:
-            print(f"Reloading plugin: {plugin_id}")
+            logger.info(f"Reloading plugin: {plugin_id}")
             self.runtime.unload_plugin(plugin_id)
             self.plugin_unloaded.emit(plugin_id)
 
@@ -152,13 +153,13 @@ class PluginManager(QObject):
                 if path and self.runtime.load_plugin(manifest, path):
                     instance = self.runtime._loaded_plugins[plugin_id]
                     self.plugin_loaded.emit(plugin_id, instance)
-                    print(f"Enabled and loaded plugin: {plugin_id}")
+                    logger.info(f"Enabled and loaded plugin: {plugin_id}")
 
             elif not is_enabled and is_loaded:
                 # Unload
                 self.runtime.unload_plugin(plugin_id)
                 self.plugin_unloaded.emit(plugin_id)
-                print(f"Disabled and unloaded plugin: {plugin_id}")
+                logger.info(f"Disabled and unloaded plugin: {plugin_id}")
 
     def get_all_manifests(self):
         """Return all discovered plugin manifests."""
@@ -172,4 +173,4 @@ class PluginManager(QObject):
         """Shutdown all loaded plugins."""
         for plugin_id in list(self.runtime._loaded_plugins.keys()):
             self.runtime.unload_plugin(plugin_id)
-        print("PluginManager shutdown complete.")
+        logger.info("PluginManager shutdown complete.")

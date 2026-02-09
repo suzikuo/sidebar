@@ -3,6 +3,8 @@ from typing import Callable, List, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer
 
+from core.logger import logger
+
 
 class PluginScheduler(QObject):
     """
@@ -28,7 +30,9 @@ class PluginScheduler(QObject):
 
     def create_timer(self) -> Optional[QTimer]:
         if len(self._active_timers) >= self.max_timers:
-            print(f"Plugin {self.plugin_id} exceeded timer quota ({self.max_timers})")
+            logger.warning(
+                f"Plugin {self.plugin_id} exceeded timer quota ({self.max_timers})"
+            )
             return None
 
         timer = QTimer()

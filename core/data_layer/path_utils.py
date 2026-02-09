@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 
+from core.logger import logger
+
 
 class PathManager:
     """
@@ -108,7 +110,7 @@ class PathManager:
             old_path = root / filename
             new_path = app_data / filename
             if old_path.exists() and not new_path.exists():
-                print(f"Migrating {old_path} to {new_path}")
+                logger.info(f"Migrating {old_path} to {new_path}")
                 shutil.copy2(old_path, new_path)
                 # We keep the old file for now to be safe, but the app will use the new one.
                 # Or we can rename it.
@@ -130,7 +132,7 @@ class PathManager:
                 old_path = plugin_dir / filename
                 new_path = app_data_dir / filename
                 if old_path.exists() and not new_path.exists():
-                    print(f"Migrating {old_path} to {new_path}")
+                    logger.info(f"Migrating {old_path} to {new_path}")
                     shutil.copy2(old_path, new_path)
 
         if dirs:
@@ -138,5 +140,5 @@ class PathManager:
                 old_path = plugin_dir / dirname
                 new_path = app_data_dir / dirname
                 if old_path.exists() and not new_path.exists():
-                    print(f"Migrating directory {old_path} to {new_path}")
+                    logger.info(f"Migrating directory {old_path} to {new_path}")
                     shutil.copytree(old_path, new_path)

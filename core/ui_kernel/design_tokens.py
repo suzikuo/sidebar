@@ -2,6 +2,8 @@ import json
 import os
 from typing import Any
 
+from core.logger import logger
+
 
 class DesignTokens:
     """Standardized tokens (colors, sizes, etc.) for UI consistency."""
@@ -36,7 +38,7 @@ class DesignTokens:
             with open(path, "r", encoding="utf-8") as f:
                 self.tokens.update(json.load(f))
         except Exception as e:
-            print(f"Error loading tokens: {e}")
+            logger.error(f"Error loading design tokens: {e}", exc_info=True)
 
     def get(self, path: str, default: Any = None) -> Any:
         # Simple path resolver (e.g. "colors.primary")

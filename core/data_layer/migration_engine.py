@@ -1,6 +1,7 @@
 from typing import Callable
 
 from core.data_layer.data_service import DataService
+from core.logger import logger
 
 
 class MigrationEngine:
@@ -24,15 +25,15 @@ class MigrationEngine:
         current_version = self._get_current_version(plugin_id)
 
         if current_version < target_version:
-            print(
+            logger.info(
                 f"Migrating plugin {plugin_id} from v{current_version} to v{target_version}"
             )
             try:
                 migrate_func(current_version, target_version)
                 self._update_version(plugin_id, target_version)
-                print(f"Migration successful for {plugin_id}")
+                logger.info(f"Migration successful for {plugin_id}")
             except Exception as e:
-                print(f"Migration failed for {plugin_id}: {e}")
+                logger.error(f"Migration failed for {plugin_id}: {e}", exc_info=True)
                 # Rollback logic could be added here if using transactions
 
     def _get_current_version(self, plugin_id: str) -> int:

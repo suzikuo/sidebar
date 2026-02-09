@@ -9,6 +9,7 @@ from qfluentwidgets import (
     SearchLineEdit,
 )
 
+from core.logger import logger
 from ui.components.base_widget import BScrollArea
 
 from .features.base import ToolboxFeature
@@ -174,7 +175,10 @@ class ToolboxWidget(QWidget):
                             break
 
                 except Exception as e:
-                    print(f"[Toolbox] Failed to load tool '{entry.name}': {e}")
+                    logger.error(
+                        f"Failed to load toolbox feature '{entry.name}': {e}",
+                        exc_info=True,
+                    )
 
     def _add_tool_card(self, feature: ToolboxFeature):
         card = ToolCard(feature, self.container)
@@ -215,4 +219,6 @@ class ToolboxWidget(QWidget):
             )
 
         except Exception as e:
-            print(f"[Toolbox] Error opening {feature.name}: {e}")
+            logger.error(
+                f"Error opening toolbox feature {feature.name}: {e}", exc_info=True
+            )

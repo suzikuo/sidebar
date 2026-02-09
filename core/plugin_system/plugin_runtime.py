@@ -3,6 +3,7 @@ import os
 import sys
 from typing import Any, Dict, Type
 
+from core.logger import logger
 from core.plugin_system.api_contract import APIContract
 from core.plugin_system.event_bus import EventBus
 from core.plugin_system.plugin_context import PluginContext
@@ -26,8 +27,8 @@ class PluginRuntime:
         api_version = manifest.get("api_version", "1.0")
 
         if not APIContract.check_compatibility(api_version):
-            print(
-                f"Error: Plugin {plugin_id} requires API version {api_version}, which is incompatible with current."
+            logger.error(
+                f"Plugin {plugin_id} requires API version {api_version}, which is incompatible with current."
             )
             return False
 
@@ -70,14 +71,11 @@ class PluginRuntime:
             self._loaded_plugins[plugin_id] = instance
             instance.on_load()
 
-            print(f"Successfully loaded plugin: {plugin_id}")
+            logger.info(f"Successfully loaded plugin: {plugin_id}")
             return True
 
         except Exception as e:
-            print(f"Failed to load plugin {plugin_id}: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.error(f"Failed to load plugin {plugin_id}: {e}", exc_info=True)
             scheduler.shutdown()
             del self._schedulers[plugin_id]
             return False
@@ -87,7 +85,7 @@ class PluginRuntime:
             try:
                 self._loaded_plugins[plugin_id].on_unload()
             except Exception as e:
-                print(f"Error unloading plugin {plugin_id}: {e}")
+                logger.error(f"Error unloading plugin {plugin_id}: {e}", exc_info=True)
 
             del self._loaded_plugins[plugin_id]
 

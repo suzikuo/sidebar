@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from qfluentwidgets import Action, FluentIcon, MessageBox, RoundMenu
 
 from core.data_layer.path_utils import PathManager
+from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.bookmarks.dialogs import AddBookmarkDialog, AddGroupDialog
 from plugins.bookmarks.views import BookmarksWidget
@@ -35,7 +36,7 @@ class BookmarksPlugin(PluginBase):
         )
 
     def on_load(self):
-        print(f"[BookmarksPlugin] Loading v2... ID: {self.context.plugin_id}")
+        logger.info(f"Bookmarks plugin loading v2... ID: {self.context.plugin_id}")
         self._load_data()
 
     def on_unload(self):
@@ -146,7 +147,7 @@ class BookmarksPlugin(PluginBase):
                             b["group_id"] = b.get("group_id", 0)
                             b["order"] = i
             except Exception as e:
-                print(f"[BookmarksPlugin] Load error: {e}")
+                logger.error(f"Bookmarks load error: {e}", exc_info=True)
                 self.groups = [{"id": 0, "name": "Default"}]
                 self.bookmarks = []
         else:
@@ -186,7 +187,7 @@ class BookmarksPlugin(PluginBase):
                     ensure_ascii=False,
                 )
         except Exception as e:
-            print(f"[BookmarksPlugin] Save error: {e}")
+            logger.error(f"Bookmarks save error: {e}", exc_info=True)
 
     def _refresh_ui(self, refresh_groups=False):
         if self.ui_widget:

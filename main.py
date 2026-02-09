@@ -28,6 +28,7 @@ from qfluentwidgets import (
 from core.data_layer.data_service import DataService
 from core.data_layer.path_utils import PathManager
 from core.input_system.shortcut_manager import ShortcutManager
+from core.logger import logger
 from core.plugin_system.event_bus import EventBus
 from core.plugin_system.plugin_manager import PluginManager
 from core.settings.settings_manager import SettingsManager
@@ -261,7 +262,7 @@ class AgileTilesApp:
 
     def _on_plugin_loaded(self, plugin_id: str, instance):
         """Called when a plugin is loaded."""
-        print(f"[AgileTiles] Plugin loaded: {plugin_id}")
+        logger.info(f"Plugin loaded: {plugin_id}")
 
         # Get the plugin card widget
         widget = instance.get_card_widget()
@@ -309,7 +310,7 @@ class AgileTilesApp:
 
     def _on_plugin_unloaded(self, plugin_id: str):
         """Called when a plugin is unloaded."""
-        print(f"[AgileTiles] Plugin unloaded: {plugin_id}")
+        logger.info(f"Plugin unloaded: {plugin_id}")
         self.sidebar_window.remove_item(plugin_id)
         self.detail_window.remove_plugin_interface(plugin_id)
 
@@ -338,7 +339,7 @@ class AgileTilesApp:
             if hasattr(instance, "run"):
                 handled = instance.run()
         except Exception as e:
-            print(f"[AgileTiles] Error running plugin {plugin_id}: {e}")
+            logger.error(f"Error running plugin {plugin_id}: {e}", exc_info=True)
 
         # 4. If not handled, show the detail window
         if not handled:
@@ -368,7 +369,9 @@ class AgileTilesApp:
                         menu.addAction(action)
 
         except Exception as e:
-            print(f"[AgileTiles] Error population context menu for {plugin_id}: {e}")
+            logger.error(
+                f"Error population context menu for {plugin_id}: {e}", exc_info=True
+            )
 
     def _setup_navigation(self):
         """Setup the navigation with settings and plugins."""
@@ -434,14 +437,14 @@ class AgileTilesApp:
 
     def run(self):
         """Start the application."""
-        print("[AgileTiles] Starting application...")
+        logger.info("Starting application...")
         # Start with just the sidebar visible? Or both?
         self.sidebar_window.show()
         return self.app.exec()
 
     def shutdown(self):
         """Shutdown the application."""
-        print("[AgileTiles] Shutting down...")
+        logger.info("Shutting down...")
 
         # Shutdown plugins
         if hasattr(self, "plugin_manager"):
@@ -461,7 +464,7 @@ class AgileTilesApp:
         # Quit application
         self.app.quit()
 
-        print("[AgileTiles] Shutdown complete")
+        logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":

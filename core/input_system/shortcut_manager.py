@@ -8,6 +8,8 @@ import time
 
 import keyboard
 
+from core.logger import logger
+
 
 class ShortcutManager:
     """
@@ -70,10 +72,11 @@ class ShortcutManager:
                 data["hook"] = keyboard.add_hotkey(
                     hotkey, lambda: self._safe_callback(callback), suppress=True
                 )
-                print(f"[ShortcutManager] Registered {action_id}: {hotkey}")
+                logger.info(f"Shortcut registered for {action_id}: {hotkey}")
             except Exception as e:
-                print(
-                    f"[ShortcutManager] Failed to register {action_id} ({hotkey}): {e}"
+                logger.error(
+                    f"Failed to register shortcut for {action_id} ({hotkey}): {e}",
+                    exc_info=True,
                 )
 
     def _safe_callback(self, callback):
@@ -81,7 +84,9 @@ class ShortcutManager:
         try:
             callback()
         except Exception as e:
-            print(f"[ShortcutManager] Error in callback: {e}")
+            logger.error(
+                f"Error in shortcut callback for {callback}: {e}", exc_info=True
+            )
             # Prevent rapid firing issues?
             time.sleep(0.1)
 

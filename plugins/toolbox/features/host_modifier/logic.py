@@ -2,6 +2,8 @@ import os
 import shutil
 from pathlib import Path
 
+from core.logger import logger
+
 
 class HostFileHandler:
     """
@@ -47,7 +49,7 @@ class HostFileHandler:
             return True
 
         except PermissionError:
-            print("[HostFileHandler] Permission denied. Attempting to elevate...")
+            logger.info("HostFileHandler: Permission denied. Attempting to elevate...")
             try:
                 # Write to a temp file first
                 with tempfile.NamedTemporaryFile(
@@ -70,15 +72,17 @@ class HostFileHandler:
                 if ret > 32:
                     return True
                 else:
-                    print(f"[HostFileHandler] Elevation failed with code {ret}")
+                    logger.error(f"HostFileHandler: Elevation failed with code {ret}")
                     return False
 
             except Exception as e:
-                print(f"[HostFileHandler] Elevation error: {e}")
+                logger.error(f"HostFileHandler: Elevation error: {e}", exc_info=True)
                 return False
 
         except Exception as e:
-            print(f"[HostFileHandler] Error writing hosts file: {e}")
+            logger.error(
+                f"HostFileHandler: Error writing hosts file: {e}", exc_info=True
+            )
             return False
 
     def is_writable(self) -> bool:

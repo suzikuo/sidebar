@@ -2,6 +2,8 @@ from typing import Any, Callable, Dict, List
 
 from PySide6.QtCore import QObject, Signal
 
+from core.logger import logger
+
 
 class EventBus(QObject):
     """
@@ -38,4 +40,4 @@ class EventBus(QObject):
                 try:
                     callback(data)
                 except Exception as e:
-                    print(f"Error in EventBus subscriber: {e}")
+                    logger.error(f"Error in EventBus subscriber: {e}", exc_info=True)

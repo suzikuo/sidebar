@@ -9,6 +9,7 @@ from qfluentwidgets import (
     RoundMenu,
 )
 
+from core.logger import logger
 from core.state_store import StateStore
 from core.window_system.horizontal_navigation import HorizontalNavigationInterface
 from ui.components.time_widget import VerticalTimeWidget
@@ -404,9 +405,7 @@ class SidebarWindow(QWidget):
 
         # Check if item creation failed
         if item is None:
-            print(
-                f"[AgileTiles] Warning: Failed to re-add navigation item: {route_key}"
-            )
+            logger.warning(f"Failed to re-add navigation item: {route_key}")
             return
 
         item.setToolTip(data.get("tooltip") or data["text"])

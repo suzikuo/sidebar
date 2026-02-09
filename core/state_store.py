@@ -2,6 +2,8 @@ import json
 import os
 from typing import Any, Dict
 
+from core.logger import logger
+
 
 class StateStore:
     """
@@ -19,7 +21,7 @@ class StateStore:
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading state store: {e}")
+                logger.error(f"Error loading state store: {e}", exc_info=True)
         return {"system": {}, "plugins": {}}
 
     def save(self):
@@ -27,7 +29,7 @@ class StateStore:
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=4)
         except Exception as e:
-            print(f"Error saving state store: {e}")
+            logger.error(f"Error saving state store: {e}", exc_info=True)
 
     def get_system_state(self, key: str, default: Any = None) -> Any:
         return self._data.get("system", {}).get(key, default)

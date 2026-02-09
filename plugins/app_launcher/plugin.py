@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 from qfluentwidgets import FluentIcon
 
 from core.data_layer.path_utils import PathManager
+from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.app_launcher.views import AppLauncherWidget
 
@@ -35,7 +36,7 @@ class AppLauncher(PluginBase):
         )
 
     def on_load(self):
-        print("[AppLauncher] Loading...")
+        logger.info("App Launcher loading...")
         self._load_settings()
 
     def on_unload(self):
@@ -78,7 +79,7 @@ class AppLauncher(PluginBase):
 
                 # Migration logic: Check if it's the old single-app format
                 if "exe_path" in data and "apps" not in data:
-                    print("[AppLauncher] Migrating legacy settings...")
+                    logger.info("App Launcher migrating legacy settings...")
                     old_app = {
                         "id": str(uuid.uuid4()),
                         "name": data.get("custom_command") or "Application",
@@ -92,14 +93,14 @@ class AppLauncher(PluginBase):
                     self.settings.update(data)
 
             except Exception as e:
-                print(f"[AppLauncher] Load error: {e}")
+                logger.error(f"App Launcher load error: {e}", exc_info=True)
 
     def _save_settings(self):
         try:
             with open(self.settings_file, "w", encoding="utf-8") as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            print(f"[AppLauncher] Save error: {e}")
+            logger.error(f"App Launcher save error: {e}", exc_info=True)
 
     def add_app(self, app_data: dict):
         if "id" not in app_data:
@@ -130,7 +131,7 @@ class AppLauncher(PluginBase):
     def launch_app(self, app_id: str):
         app = next((a for a in self.settings["apps"] if a["id"] == app_id), None)
         if not app:
-            print(f"[AppLauncher] App not found: {app_id}")
+            logger.warning(f"App Launcher: App not found: {app_id}")
             return
 
         exe_path = app.get("exe_path")
@@ -149,7 +150,7 @@ class AppLauncher(PluginBase):
         command = [exe_path] + args
 
         try:
-            print(f"[AppLauncher] Launching: {command}")
+            logger.info(f"App Launcher launching: {command}")
             # Use Popen to launch without blocking
             cwd = os.path.dirname(exe_path)
             subprocess.Popen(command, shell=False, cwd=cwd)

@@ -3,6 +3,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import FluentIcon, TransparentToolButton
 
+from core.logger import logger
 from core.state_store import StateStore
 from core.ui_kernel.theme_engine import ThemeEngine
 from core.ui_kernel.view_host.card_lifecycle import CardLifecycle
@@ -106,7 +107,9 @@ class DetailWindow(FramelessWindow):
                 state = self.state_store.get_plugin_state(plugin_id, "view_context", {})
                 widget.restore_state(state)
             except Exception as e:
-                print(f"Error restoring state: {e}")
+                logger.error(
+                    f"Error restoring state for {plugin_id}: {e}", exc_info=True
+                )
 
     def remove_plugin_interface(self, plugin_id: str):
         """Remove plugin content from stack."""
@@ -190,7 +193,7 @@ class DetailWindow(FramelessWindow):
             self.show()
             self.activateWindow()
         else:
-            print(f"Plugin {plugin_id} not found")
+            logger.warning(f"Plugin {plugin_id} not found")
 
     def hide_content(self):
         """Hide the detail window."""

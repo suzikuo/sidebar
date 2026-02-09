@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import FluentIcon
 
+from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.toolbox.views import ToolboxWidget
 
@@ -15,10 +16,10 @@ class ToolboxPlugin(PluginBase):
         self.ui_widget = None
 
     def on_load(self):
-        print("[Toolbox] Loading...")
+        logger.info("Toolbox plugin loading...")
 
     def on_unload(self):
-        print("[Toolbox] Unloading...")
+        logger.info("Toolbox plugin unloading...")
 
     def get_card_widget(self) -> QWidget:
         if self.ui_widget is None:

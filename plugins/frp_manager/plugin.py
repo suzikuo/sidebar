@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QWidget
 from qfluentwidgets import FluentIcon
 
 from core.data_layer.path_utils import PathManager
+from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.frp_manager.models import DatabaseManager
 from plugins.frp_manager.views import FRPManagerWidget
@@ -39,10 +40,10 @@ class FRPManagerPlugin(PluginBase):
         self.status_timer.start(2000)
 
     def on_load(self):
-        print("[FRPManagerPlugin] Loading...")
+        logger.info("FRP Manager loading...")
 
     def on_unload(self):
-        print("[FRPManagerPlugin] Unloading... Stopping all processes.")
+        logger.info("FRP Manager unloading... Stopping all processes.")
         self.status_timer.stop()
         for config_id in list(self.processes.keys()):
             self.stop_frp(config_id)
@@ -69,7 +70,7 @@ class FRPManagerPlugin(PluginBase):
         """Start an FRP service."""
         if config_id in self.processes:
             if self.processes[config_id].poll() is None:
-                print(f"[FRPManagerPlugin] Service {config_id} is already running.")
+                logger.info(f"FRP Service {config_id} is already running.")
                 return True
             else:
                 del self.processes[config_id]
@@ -84,16 +85,16 @@ class FRPManagerPlugin(PluginBase):
         config_path = config["config_path"]
 
         if not os.path.exists(exe_path):
-            print(f"[FRPManagerPlugin] Executable not found: {exe_path}")
+            logger.error(f"FRP Executable not found: {exe_path}")
             return False
         if not os.path.exists(config_path):
-            print(f"[FRPManagerPlugin] Config not found: {config_path}")
+            logger.error(f"FRP Config not found: {config_path}")
             return False
 
         try:
             # Command: exe -c config
             cmd = [exe_path, "-c", config_path]
-            print(f"[FRPManagerPlugin] Starting: {' '.join(cmd)}")
+            logger.info(f"Starting FRP: {' '.join(cmd)}")
 
             # Start process in background, without window
             creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -117,7 +118,7 @@ class FRPManagerPlugin(PluginBase):
             return True
         except Exception as e:
             msg = f"Error starting FRP: {e}"
-            print(f"[FRPManagerPlugin] {msg}")
+            logger.error(msg, exc_info=True)
 
             if self.context:
                 self.context.send_notification(
@@ -131,7 +132,7 @@ class FRPManagerPlugin(PluginBase):
         if config_id in self.processes:
             process = self.processes[config_id]
             if process.poll() is None:
-                print(f"[FRPManagerPlugin] Stopping service {config_id}")
+                logger.info(f"Stopping FRP service {config_id}")
                 process.terminate()
                 try:
                     process.wait(timeout=3)
@@ -165,8 +166,8 @@ class FRPManagerPlugin(PluginBase):
         for config_id in list(self.processes.keys()):
             process = self.processes[config_id]
             if process.poll() is not None:
-                msg = f"Service {config_id} stopped with code {process.returncode}"
-                print(f"[FRPManagerPlugin] {msg}")
+                msg = f"FRP Service {config_id} stopped with code {process.returncode}"
+                logger.warning(msg)
 
                 # Notify unexpected stop
                 if self.context:
@@ -180,12 +181,11 @@ class FRPManagerPlugin(PluginBase):
                     # We use communicate with a small timeout or just read from the pipe since it's already done
                     stdout_data = process.stdout.read()
                     if stdout_data:
-                        print(
-                            f"[FRPManagerPlugin] Service {config_id} logs:\n{stdout_data}"
-                        )
+                        logger.info(f"FRP Service {config_id} logs:\n{stdout_data}")
                 except Exception as e:
-                    print(
-                        f"[FRPManagerPlugin] Could not read logs for {config_id}: {e}"
+                    logger.error(
+                        f"Could not read logs for FRP service {config_id}: {e}",
+                        exc_info=True,
                     )
 
                 del self.processes[config_id]

@@ -8,5 +8,14 @@
     "class": "ToolboxPlugin",
     "permissions": [
         "filesystem"
+    ],
+    "dependencies": [
+        "mimetypes",
+        "base64",
+        "ctypes",
+        "tempfile",
+        "random",
+        "string",
+        "shutil"
     ]
 }

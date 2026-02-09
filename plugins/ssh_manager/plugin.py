@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QWidget
 from qfluentwidgets import BodyLabel, FluentIcon
 
 from core.data_layer.path_utils import PathManager
+from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.ssh_manager.models import DatabaseManager
 from plugins.ssh_manager.views import SSHManagerWidget
@@ -39,17 +40,17 @@ class SSHManagerPlugin(PluginBase):
         self.db = DatabaseManager(str(self.db_path))
 
     def on_load(self):
-        print("[SSHManagerPlugin] Loading...")
+        logger.info("SSH Manager loading...")
         # Migration: Add color column if missing
         try:
             self.db.execute("ALTER TABLE ssh_connections ADD COLUMN color TEXT")
-            print("[SSHManagerPlugin] Migration: Added color column")
+            logger.info("SSH Manager migration: Added color column")
         except Exception:
             # Column likely already exists
             pass
 
     def on_unload(self):
-        print("[SSHManagerPlugin] Unloading...")
+        logger.info("SSH Manager unloading...")
         self.db.close()
 
     def get_card_widget(self) -> QWidget:
@@ -106,10 +107,10 @@ class SSHManagerPlugin(PluginBase):
         full_command = f'start "{name}" {ssh_cmd}'
 
         try:
-            print(f"[SSHManagerPlugin] Connecting to {name}: {ssh_cmd}")
+            logger.info(f"Connecting to {name}: {ssh_cmd}")
             subprocess.Popen(full_command, shell=True)
         except Exception as e:
-            print(f"[SSHManagerPlugin] Error launching SSH: {e}")
+            logger.error(f"Error launching SSH: {e}", exc_info=True)
 
     def run_scp(self, connection_id, transfer_data):
         """Execute SCP command in a new terminal."""
@@ -155,7 +156,7 @@ class SSHManagerPlugin(PluginBase):
         full_command = f'start "SCP - {name}" cmd /k "{scp_cmd} && pause"'
 
         try:
-            print(f"[SSHManagerPlugin] executing SCP: {scp_cmd}")
+            logger.info(f"Executing SCP: {scp_cmd}")
             subprocess.Popen(full_command, shell=True)
         except Exception as e:
-            print(f"[SSHManagerPlugin] Error launching SCP: {e}")
+            logger.error(f"Error launching SCP: {e}", exc_info=True)

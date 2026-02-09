@@ -11,5 +11,10 @@
         "db"
     ],
     "api_version": "1.0",
+    "dependencies": [
+        "sqlite3",
+        "re",
+        "subprocess"
+    ],
     "db_schema_version": 1
 }
