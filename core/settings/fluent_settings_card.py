@@ -267,6 +267,22 @@ class FluentSettingsCard(QWidget):
         self.reset_pos_card.clicked.connect(self._reset_sidebar_position)
         appearance_group.addSettingCard(self.reset_pos_card)
 
+        # Max Plugins Displayed
+        self._add_slider_card(
+            group=appearance_group,
+            icon=FluentIcon.TILES,
+            title="显示插件数量限制",
+            content="侧边栏最多显示的插件数量（0表示不限制）",
+            min_val=0,
+            max_val=20,
+            value=self.settings_manager.get_setting(
+                "appearance", "max_plugins_count", 0
+            ),
+            callback=lambda val: self.settings_manager.set_setting(
+                "appearance", "max_plugins_count", val
+            ),
+        )
+
         content_layout.addWidget(appearance_group)
 
         # === Storage Settings Group ===

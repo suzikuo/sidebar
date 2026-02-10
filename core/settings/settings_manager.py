@@ -40,6 +40,7 @@ class SettingsManager(QObject):
             "sidebar_height_percent": 0.8,  # 0.2 to 1.0
             "sidebar_hidden_height_percent": 0.8,  # 0.2 to 1.0
             "sidebar_y_offset": 0,  # pixels from center
+            "max_plugins_count": 0,  # 0 means no limit
         },
         "plugins": {
             "enabled": [],  # List of enabled plugin IDs

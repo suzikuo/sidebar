@@ -121,6 +121,9 @@ class SidebarWindow(QWidget):
         self.is_hidden = True
         self.items = {}
         self.item_data = {}  # Store metadata for reconstruction
+        self._plugin_keys = []
+        self.overflow_expanded = False
+        self._overflow_item = None
         self._update_style()  # Cache style settings
         self._init_behavior()
         # Timers removed in favor of events
@@ -209,6 +212,7 @@ class SidebarWindow(QWidget):
         # Update edge orientation
         old_edge = self.edge
         self.edge = settings.get("sidebar_position", "right")
+        self.max_plugins_count = settings.get("max_plugins_count", 0)
 
         if old_edge != self.edge:
             # Notify widgets of orientation change
@@ -223,6 +227,7 @@ class SidebarWindow(QWidget):
         # Only set alpha on background color, not the entire window
         # This keeps content (icons, text) opaque while background is transparent
         self.cached_bg_color.setAlphaF(self.cached_opacity)
+        self._update_overflow_visibility()
 
     def set_detail_window(self, window):
         """Set reference to detail window for coordinated hiding."""
@@ -375,6 +380,11 @@ class SidebarWindow(QWidget):
         item.setToolTip(tooltip or text)
         self.items[route_key] = item
 
+        if position == NavigationItemPosition.TOP:
+            if route_key not in self._plugin_keys:
+                self._plugin_keys.append(route_key)
+            self._update_overflow_visibility()
+
         # Install event filter to catch right clicks
         item.installEventFilter(self)
 
@@ -395,6 +405,10 @@ class SidebarWindow(QWidget):
 
         if route_key in self.item_data:
             del self.item_data[route_key]
+
+        if route_key in self._plugin_keys:
+            self._plugin_keys.remove(route_key)
+            self._update_overflow_visibility()
 
     def update_plugin_order(self, ordered_ids: list):
         """Reorder plugin items (Position.TOP) according to the list.
@@ -455,6 +469,14 @@ class SidebarWindow(QWidget):
             if k not in added_keys:
                 self._add_item_from_data(k)
 
+        # Update plugin keys list to match new order
+        self._plugin_keys = [k for k in ordered_ids if k in self.items]
+        for k in keys_to_reorder:
+            if k not in self._plugin_keys and k in self.items:
+                self._plugin_keys.append(k)
+
+        self._update_overflow_visibility()
+
     def _add_item_from_data(self, route_key):
         """Helper to add item using stored data."""
         data = self.item_data.get(route_key)
@@ -477,6 +499,61 @@ class SidebarWindow(QWidget):
         item.setToolTip(data.get("tooltip") or data["text"])
         self.items[route_key] = item
         item.installEventFilter(self)
+
+    def _update_overflow_visibility(self):
+        """Update visibility of plugins based on max_plugins_count."""
+        if (
+            self.max_plugins_count <= 0
+            or len(self._plugin_keys) <= self.max_plugins_count
+        ):
+            # Show all plugins, hide overflow button
+            for k in self._plugin_keys:
+                if k in self.items:
+                    self.items[k].show()
+            if self._overflow_item:
+                self._overflow_item.hide()
+            return
+
+        # Limit is active
+        shown_count = self.max_plugins_count
+        for i, k in enumerate(self._plugin_keys):
+            if k in self.items:
+                if self.overflow_expanded or i < shown_count:
+                    self.items[k].show()
+                else:
+                    self.items[k].hide()
+
+        # Add or update overflow button
+        if self._overflow_item:
+            self.navigationInterface.removeWidget("overflow_toggle")
+            self._overflow_item = None
+
+        # Determine icons based on orientation
+        if self.edge == "top":
+            collapsed_icon = FluentIcon.CHEVRON_RIGHT_MED
+            expanded_icon = FluentIcon.CHEVRON_DOWN_MED
+        else:
+            collapsed_icon = FluentIcon.CHEVRON_DOWN_MED
+            expanded_icon = FluentIcon.CHEVRON_RIGHT_MED
+
+        icon = expanded_icon if self.overflow_expanded else collapsed_icon
+
+        self._overflow_item = self.navigationInterface.addItem(
+            routeKey="overflow_toggle",
+            icon=icon,
+            text="More" if not self.overflow_expanded else "Less",
+            onClick=self._toggle_overflow,
+            position=NavigationItemPosition.TOP,
+        )
+        self._overflow_item.setToolTip(
+            "Show less plugins" if self.overflow_expanded else "Show more plugins"
+        )
+        self._overflow_item.show()
+
+    def _toggle_overflow(self):
+        """Toggle the overflow expansion."""
+        self.overflow_expanded = not self.overflow_expanded
+        self._update_overflow_visibility()
 
     def eventFilter(self, obj, event):
         """Handle internal events and context menus."""
