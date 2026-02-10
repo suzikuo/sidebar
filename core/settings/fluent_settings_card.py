@@ -6,7 +6,7 @@ Only uses components that work without ConfigItem
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
@@ -627,7 +627,42 @@ class FluentSettingsCard(QWidget):
         """Return preferred width for the settings card."""
         return self.settings_manager.get_setting("appearance", "sidebar_width", 500)
 
-        return self.settings_manager.get_setting("appearance", "sidebar_width", 500)
+    def _on_install_plugin(self):
+        """Handle plugin installation."""
+        from qfluentwidgets import InfoBar, InfoBarPosition
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择插件文件", "", "Plugin Files (*.pyd *.zip)"
+        )
+
+        if not file_path:
+            return
+
+        manager = self.settings_manager.plugin_manager
+        success, message = manager.install_plugin(file_path)
+
+        if success:
+            InfoBar.success(
+                title="安装成功",
+                content=message,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self.window(),
+            )
+            # Refresh the group UI
+            self._add_plugin_group(self.plugin_group_layout)
+        else:
+            InfoBar.error(
+                title="安装失败",
+                content=message,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self.window(),
+            )
 
     def _add_plugin_group(self, layout):
         """Add plugin management section."""
@@ -657,6 +692,17 @@ class FluentSettingsCard(QWidget):
 
         # === Plugins Group ===
         self.plugin_group = SettingCardGroup("插件管理", self)
+
+        # Add Plugin Button
+        self.install_plugin_card = PushSettingCard(
+            "选择文件",
+            FluentIcon.ADD,
+            "添加插件",
+            "从 .pyd 或 .zip 文件直接添加插件到系统",
+            parent=self.plugin_group,
+        )
+        self.install_plugin_card.clicked.connect(self._on_install_plugin)
+        self.plugin_group.addSettingCard(self.install_plugin_card)
 
         manifests = self.settings_manager.plugin_manager.get_all_manifests()
 

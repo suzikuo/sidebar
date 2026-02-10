@@ -1,4 +1,7 @@
+import json
 import os
+import shutil
+import zipfile
 
 from PySide6.QtCore import QObject, Signal
 
@@ -176,6 +179,120 @@ class PluginManager(QObject):
     def record_load_error(self, plugin_id: str, error: str):
         """Manually record a load error for a plugin."""
         self.runtime.load_errors[plugin_id] = error
+
+    def install_plugin(self, file_path: str) -> tuple[bool, str]:
+        """
+        Installs a plugin from a .pyd or .zip file.
+        Returns (success, message).
+        """
+        if not os.path.exists(file_path):
+            return False, f"File not found: {file_path}"
+
+        filename = os.path.basename(file_path)
+        name_no_ext, ext = os.path.splitext(filename)
+        ext = ext.lower()
+
+        # Target plugins directory (usually the first one)
+        if not self.plugins_dirs:
+            return False, "No plugin directories configured."
+
+        target_base_dir = self.plugins_dirs[0]
+
+        try:
+            if ext == ".pyd":
+                # 1. Create directory
+                plugin_id = f"{name_no_ext.lower()}_plugin"
+                plugin_dir = os.path.join(target_base_dir, plugin_id)
+                os.makedirs(plugin_dir, exist_ok=True)
+
+                # 2. Copy .pyd
+                target_pyd = os.path.join(plugin_dir, filename)
+                shutil.copy2(file_path, target_pyd)
+
+                # 3. Generate manifest.json
+                manifest = {
+                    "id": plugin_id,
+                    "name": name_no_ext.replace("_", " ").title(),
+                    "version": "1.0.0",
+                    "entry": filename,
+                    "class": "Plugin",
+                    "api_version": "1.0",
+                    "description": f"Auto-generated plugin wrapper for {filename}",
+                }
+
+                manifest_path = os.path.join(plugin_dir, "manifest.json")
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(manifest, f, indent=4, ensure_ascii=False)
+
+                logger.info(f"Installed .pyd plugin: {plugin_id}")
+
+            elif ext == ".zip":
+                # 1. Extract to temp to check manifest
+                import tempfile
+
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, "r") as zip_ref:
+                        zip_ref.extractall(tmpdir)
+
+                    # Try to find manifest.json
+                    manifest_found = False
+                    plugin_id = None
+
+                    # Case A: manifest.json is in root of zip
+                    manifest_path = os.path.join(tmpdir, "manifest.json")
+                    if os.path.exists(manifest_path):
+                        with open(manifest_path, "r", encoding="utf-8") as f:
+                            m_data = json.load(f)
+                            plugin_id = m_data.get("id")
+                            manifest_found = True
+
+                    if not manifest_found:
+                        # Case B: zip contains a single folder which contains manifest.json
+                        items = os.listdir(tmpdir)
+                        if len(items) == 1 and os.path.isdir(
+                            os.path.join(tmpdir, items[0])
+                        ):
+                            inner_manifest = os.path.join(
+                                tmpdir, items[0], "manifest.json"
+                            )
+                            if os.path.exists(inner_manifest):
+                                with open(inner_manifest, "r", encoding="utf-8") as f:
+                                    m_data = json.load(f)
+                                    plugin_id = m_data.get("id")
+                                    manifest_found = True
+
+                    if not manifest_found or not plugin_id:
+                        return (
+                            False,
+                            "Invalid plugin zip: manifest.json not found or missing 'id'.",
+                        )
+
+                    # 2. Extract for real
+                    plugin_dir = os.path.join(target_base_dir, plugin_id)
+                    if os.path.exists(plugin_dir):
+                        # Simple overwrite? Or error? Let's overwrite but log
+                        logger.warning(
+                            f"Plugin directory {plugin_dir} already exists, overwriting."
+                        )
+                        shutil.rmtree(plugin_dir)
+
+                    with zipfile.ZipFile(file_path, "r") as zip_ref:
+                        zip_ref.extractall(target_base_dir)
+
+                logger.info(f"Installed .zip plugin: {plugin_id}")
+            else:
+                return (
+                    False,
+                    f"Unsupported file type: {ext}. Please provide a .pyd or .zip file.",
+                )
+
+            # Refresh and load
+            self.discover_and_load()
+            return True, f"Plugin {plugin_id} installed successfully!"
+
+        except Exception as e:
+            logger.error(f"Failed to install plugin: {e}", exc_info=True)
+            return False, f"Installation error: {str(e)}"
 
     def shutdown(self):
         """Shutdown all loaded plugins."""
