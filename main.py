@@ -60,10 +60,6 @@ class AppSignals(QObject):
     def activate_plugin(self, plugin_id):
         self.app._do_activate_plugin(plugin_id)
 
-    @Slot()
-    def toggle_sidebar_visibility(self):
-        self.app._do_toggle_sidebar_visibility()
-
 
 class AgileTilesApp:
     def __init__(self):
@@ -167,10 +163,6 @@ class AgileTilesApp:
         self.shortcut_manager.register_shortcut(
             "toggle_sidebar", "alt+space", self._toggle_sidebar
         )
-        # Toggle Sidebar Visibility (Show/Hide Window)
-        self.shortcut_manager.register_shortcut(
-            "toggle_sidebar_visibility", None, self._toggle_sidebar_visibility
-        )
 
     def _toggle_sidebar(self):
         """Toggle sidebar expand/collapse (Thread-safe wrapper)."""
@@ -201,23 +193,6 @@ class AgileTilesApp:
             self.sidebar_window.activateWindow()
         else:
             self.sidebar_window.collapse()
-
-    def _toggle_sidebar_visibility(self):
-        """Toggle sidebar window visibility (Thread-safe wrapper)."""
-        from PySide6.QtCore import QMetaObject, Qt
-
-        QMetaObject.invokeMethod(
-            self.signals, "toggle_sidebar_visibility", Qt.QueuedConnection
-        )
-
-    def _do_toggle_sidebar_visibility(self):
-        """Actual window visibility toggle logic."""
-        if self.sidebar_window.isVisible():
-            self.sidebar_window.hide()
-            # Also hiding detail window usually makes sense when hiding the sidebar completely
-            self.detail_window.hide()
-        else:
-            self.show_window()
 
     def _apply_saved_settings(self):
         """Apply saved settings to theme engine on startup."""

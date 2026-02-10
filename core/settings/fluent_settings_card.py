@@ -115,11 +115,11 @@ class FluentSettingsCard(QWidget):
         )
         general_group.addSettingCard(self.time_card)
 
-        # Mouse Hover switch
+        # Edge auto-hide + hover auto-show (combined feature)
         self.hover_card = SwitchSettingCard(
             FluentIcon.MOVE,
-            "鼠标悬停显示",
-            "鼠标移入侧边栏区域时自动显示侧边栏。\n若关闭，则只能通过快捷键呼出。",
+            "贴边隐藏与悬停显示",
+            "开启后，鼠标离开侧边栏时自动贴边隐藏，移入时自动显示。\n关闭后侧边栏将始终保持展开状态，仅可通过快捷键收起。",
             parent=general_group,
         )
         self.hover_card.switchButton.setChecked(
@@ -652,17 +652,6 @@ class FluentSettingsCard(QWidget):
             "全局快捷键",
             "toggle_sidebar",
             "alt+space",
-        )
-
-        # Global: Toggle Window Visibility
-        self._add_shortcut_card(
-            self.shortcut_group,
-            "sidebar_visibility",
-            FluentIcon.HIDE,
-            "显示/隐藏侧边栏 (窗口)",
-            "完全隐藏或显示侧边栏窗口",
-            "toggle_sidebar_visibility",
-            None,
         )
 
         layout.addWidget(self.shortcut_group)

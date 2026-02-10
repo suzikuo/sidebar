@@ -559,7 +559,17 @@ class SidebarWindow(QWidget):
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        """Mouse leave: start hide timer."""
+        """Mouse leave: start hide timer only if edge-hide is enabled."""
+        enable_hover = (
+            self.state_store.get("settings", {})
+            .get("general", {})
+            .get("enable_mouse_hover", True)
+        )
+        if not enable_hover:
+            # Feature disabled — sidebar stays expanded, do not auto-hide
+            super().leaveEvent(event)
+            return
+
         # Check if moving to detail window before hiding?
         # Ideally detail window also cancels the timer if entered.
         # For now, just start timer. The delay gives user time to move.
