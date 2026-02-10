@@ -64,8 +64,6 @@ class TimePlugin(PluginBase):
         return {"max_height": 120, "max_width": 200, "min_width": 40}
 
     def get_icon(self):
-        raise
-
         return FluentIcon.DATE_TIME
 
     def _on_config_changed(self, config: dict):

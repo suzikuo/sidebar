@@ -8,6 +8,7 @@ Following official qfluentwidgets demo pattern:
 """
 
 import os
+import subprocess
 import sys
 
 from PySide6.QtCore import QObject, Slot  # noqa: E402
@@ -472,6 +473,10 @@ class AgileTilesApp:
         # Create tray menu
         tray_menu = QMenu()
 
+        restart_action = QAction("Restart", self.app)
+        restart_action.triggered.connect(self.restart)
+        tray_menu.addAction(restart_action)
+
         quit_action = QAction("Quit", self.app)
         quit_action.triggered.connect(self.shutdown)
         tray_menu.addAction(quit_action)
@@ -548,6 +553,22 @@ class AgileTilesApp:
         self.app.quit()
 
         logger.info("Shutdown complete")
+
+    def restart(self):
+        """Restart the application."""
+        logger.info("Restarting application...")
+
+        # 1. Shutdown cleanup
+        self.shutdown()
+
+        # 2. Spawn new process
+        # We use sys.executable to get paths to python if running script,
+        # or the exe path if it's a frozen application.
+        # sys.argv contains the original arguments.
+        try:
+            subprocess.Popen([sys.executable] + sys.argv)
+        except Exception as e:
+            logger.error(f"Failed to restart: {e}")
 
 
 if __name__ == "__main__":
