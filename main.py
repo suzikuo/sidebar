@@ -258,6 +258,14 @@ class AgileTilesApp:
             # Add to Detail Window (Content)
             self.detail_window.add_plugin_interface(plugin_id, widget, name)
 
+            # Add sidebar widget if provided (e.g. lyrics display)
+            try:
+                sidebar_widget = instance.get_sidebar_widget()
+                if sidebar_widget is not None:
+                    self.sidebar_window.add_sidebar_widget(sidebar_widget)
+            except Exception as e:
+                logger.warning(f"Plugin {plugin_id} get_sidebar_widget error: {e}")
+
             # Register Plugin Shortcut (if any)
             # We use the plugin_id as key. Default None (user must set it)
             self.shortcut_manager.register_shortcut(

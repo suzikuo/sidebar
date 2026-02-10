@@ -12,7 +12,6 @@ from qfluentwidgets import (
 from core.logger import logger
 from core.state_store import StateStore
 from core.window_system.horizontal_navigation import HorizontalNavigationInterface
-from ui.components.time_widget import VerticalTimeWidget
 
 from .window_behavior import WindowBehavior
 
@@ -55,11 +54,7 @@ class SidebarWindow(QWidget):
             self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
             self.vBoxLayout.addWidget(self.navigationInterface)
 
-            # Add time widget below navigation interface
-            self.timeWidget = VerticalTimeWidget(self)
-            self.timeWidget.set_vertical()
             self.vBoxLayout.addStretch(1)
-            self.vBoxLayout.addWidget(self.timeWidget)
             self.vBoxLayout.addSpacing(20)  # Bottom margin
 
         else:
@@ -72,10 +67,7 @@ class SidebarWindow(QWidget):
             self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
             self.vBoxLayout.addWidget(self.navigationInterface)
 
-            self.timeWidget = VerticalTimeWidget(self)
-            self.timeWidget.set_horizontal()
             self.vBoxLayout.addStretch(1)
-            self.vBoxLayout.addWidget(self.timeWidget)
             self.vBoxLayout.addSpacing(20)  # Bottom margin
 
         # Force transparent background on all child widgets
@@ -126,6 +118,9 @@ class SidebarWindow(QWidget):
 
         self.navigationInterface.hide()
 
+        # Container for plugin sidebar widgets (e.g. lyrics)
+        self._sidebar_widgets: list[QWidget] = []
+
         self.setGeometry(self.behavior.get_hidden_geometry(peek_width=self.peek_width))
 
         # self.titleBar.hide()
@@ -146,10 +141,39 @@ class SidebarWindow(QWidget):
 
         self.update()
 
+    def add_sidebar_widget(self, widget: QWidget):
+        """Insert a plugin-provided widget into the sidebar layout."""
+        # 1. Inform widget of current orientation if it cares
+        if hasattr(widget, "set_orientation"):
+            widget.set_orientation(self.edge)
+
+        # 2. Insert into layout
+        # Layout order: navigationInterface, [sidebar widgets…], stretch, spacing
+        # We insert before the stretch (which is the last item before spacing)
+        # However, to be safe, we can just insert after navigationInterface (idx 1)
+        # or before the stretch if we can find it.
+        # Let's find the stretch index.
+        idx = self.vBoxLayout.count() - 2  # Before stretch and spacing
+        if idx > 0:
+            self.vBoxLayout.insertWidget(idx, widget)
+        else:
+            self.vBoxLayout.addWidget(widget)
+        self._sidebar_widgets.append(widget)
+
     def _update_style(self):
         """Cache style settings to avoid reading state_store in paintEvent."""
         settings = self.state_store.get("settings", {}).get("appearance", {})
         self.cached_opacity = settings.get("sidebar_bg_opacity", 0.9)
+
+        # Update edge orientation
+        old_edge = self.edge
+        self.edge = settings.get("sidebar_position", "right")
+
+        if old_edge != self.edge:
+            # Notify widgets of orientation change
+            for widget in self._sidebar_widgets:
+                if hasattr(widget, "set_orientation"):
+                    widget.set_orientation(self.edge)
 
         is_light = settings.get("theme_mode") == "light"
         self.cached_bg_color = QColor(32, 32, 32)  # Dark theme base
@@ -158,13 +182,6 @@ class SidebarWindow(QWidget):
         # Only set alpha on background color, not the entire window
         # This keeps content (icons, text) opaque while background is transparent
         self.cached_bg_color.setAlphaF(self.cached_opacity)
-
-        # Update TimeWidget theme and visibility (only if it exists)
-        if hasattr(self, "timeWidget") and self.timeWidget:
-            # Check visibility setting
-            general_settings = self.state_store.get("settings", {}).get("general", {})
-            show_time = general_settings.get("show_time", True)
-            self.timeWidget.setVisible(show_time)
 
     def set_detail_window(self, window):
         """Set reference to detail window for coordinated hiding."""

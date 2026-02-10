@@ -38,6 +38,11 @@ class PluginBase(ABC):
         """Returns the main QWidget for the plugin card."""
         pass
 
+    def get_sidebar_widget(self):
+        """Optional: Returns a small QWidget to embed directly in the sidebar layout.
+        Return None (default) if the plugin has no sidebar widget."""
+        return None
+
     def get_widget(self):
         """Deprecated: use get_card_widget instead."""
         return self.get_card_widget()

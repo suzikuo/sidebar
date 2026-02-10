@@ -98,23 +98,6 @@ class FluentSettingsCard(QWidget):
         )
         general_group.addSettingCard(self.notify_card)
 
-        # Show Time switch
-        self.time_card = SwitchSettingCard(
-            FluentIcon.DATE_TIME,
-            "显示时间",
-            "在侧边栏底部显示当前时间",
-            parent=general_group,
-        )
-        self.time_card.switchButton.setChecked(
-            self.settings_manager.get_setting("general", "show_time", True)
-        )
-        self.time_card.switchButton.checkedChanged.connect(
-            lambda checked: self.settings_manager.set_setting(
-                "general", "show_time", checked
-            )
-        )
-        general_group.addSettingCard(self.time_card)
-
         # Edge auto-hide + hover auto-show (combined feature)
         self.hover_card = SwitchSettingCard(
             FluentIcon.MOVE,
