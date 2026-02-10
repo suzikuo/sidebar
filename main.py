@@ -12,14 +12,21 @@ import sys
 
 from PySide6.QtCore import QObject, Slot  # noqa: E402
 from PySide6.QtGui import QAction, QFont  # noqa: E402
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QHBoxLayout,
+    QMenu,
+    QSystemTrayIcon,
+    QVBoxLayout,
+)
 
 # STEP 1: Create QApplication FIRST - BEFORE any other imports
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
-
-# STEP 2: Now import everything else AFTER QApplication exists
 from qfluentwidgets import (
+    BodyLabel,
     FluentIcon,
     NavigationItemPosition,
+    PushButton,
     Theme,
     setTheme,
     setThemeColor,
@@ -45,6 +52,69 @@ if project_root not in sys.path:
 # Create QApplication at module level - this is the official pattern
 app = QApplication(sys.argv)
 app.setQuitOnLastWindowClosed(False)
+
+
+class PluginErrorDialog(QDialog):
+    """Standalone error dialog for plugin loading failures."""
+
+    def __init__(self, errors: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Plugin Load Errors")
+        self.setMinimumWidth(450)
+
+        # Basic fluent-like styling for standalone dialog
+        self.setStyleSheet(
+            """
+            QDialog {
+                background-color: #202020;
+                border: 1px solid #3c3c3c;
+                border-radius: 8px;
+            }
+            QLabel {
+                color: white;
+            }
+        """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        # Title
+        title = BodyLabel("Plugin Load Errors", self)
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ff6b9d;")
+        layout.addWidget(title)
+
+        # Message
+        msg = "The following plugins encountered errors during startup:\n"
+        for pid, err in errors.items():
+            msg += f"\n• {pid}:\n  {err}\n"
+
+        content = BodyLabel(msg, self)
+        content.setWordWrap(True)
+        layout.addWidget(content)
+
+        layout.addStretch(1)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch(1)
+        self.ok_btn = PushButton("Understood", self)
+        self.ok_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(self.ok_btn)
+        layout.addLayout(btn_layout)
+
+        # Center on screen
+        self._center_on_screen()
+
+    def _center_on_screen(self):
+        from PySide6.QtGui import QGuiApplication
+
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        self.adjustSize()
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
 
 
 class AppSignals(QObject):
@@ -237,52 +307,58 @@ class AgileTilesApp:
 
     def _on_plugin_loaded(self, plugin_id: str, instance):
         """Called when a plugin is loaded."""
-        logger.info(f"Plugin loaded: {plugin_id}")
+        try:
+            logger.info(f"Plugin loaded: {plugin_id}")
 
-        # Get the plugin card widget
-        widget = instance.get_card_widget()
-        if widget:
-            # Get plugin name from manifest or use id
-            name = getattr(
-                instance, "name", plugin_id.split(".")[-1].replace("_", " ").title()
+            # Get the plugin card widget
+            widget = instance.get_card_widget()
+            if widget:
+                # Get plugin name from manifest or use id
+                name = getattr(
+                    instance, "name", plugin_id.split(".")[-1].replace("_", " ").title()
+                )
+
+                # Add to Sidebar (Icons)
+                icon = getattr(instance, "get_icon", lambda: FluentIcon.APPLICATION)()
+                description = getattr(instance, "description", "")
+                tooltip = f"{name}\n{description}" if description else name
+                self.sidebar_window.add_item(
+                    route_key=plugin_id, icon=icon, text=name, tooltip=tooltip
+                )
+
+                # Add to Detail Window (Content)
+                self.detail_window.add_plugin_interface(plugin_id, widget, name)
+
+                # Add sidebar widget if provided (e.g. lyrics display)
+                try:
+                    sidebar_widget = instance.get_sidebar_widget()
+                    if sidebar_widget is not None:
+                        # Special case: Time plugin stays at the far end (stretch)
+                        is_stretch = plugin_id == "time"
+
+                        # Fetch configuration
+                        config = {}
+                        if hasattr(instance, "get_sidebar_widget_config"):
+                            config = instance.get_sidebar_widget_config()
+
+                        self.sidebar_window.add_sidebar_widget(
+                            sidebar_widget, stretch=is_stretch, config=config
+                        )
+                except Exception as e:
+                    logger.warning(f"Plugin {plugin_id} get_sidebar_widget error: {e}")
+
+                # Register Plugin Shortcut (if any)
+                # We use the plugin_id as key. Default None (user must set it)
+                self.shortcut_manager.register_shortcut(
+                    f"plugin.{plugin_id}",
+                    None,
+                    lambda pid=plugin_id: self._activate_plugin(pid),
+                )
+        except Exception as e:
+            logger.error(
+                f"UI initialization failed for plugin {plugin_id}: {e}", exc_info=True
             )
-
-            # Add to Sidebar (Icons)
-            icon = getattr(instance, "get_icon", lambda: FluentIcon.APPLICATION)()
-            description = getattr(instance, "description", "")
-            tooltip = f"{name}\n{description}" if description else name
-            self.sidebar_window.add_item(
-                route_key=plugin_id, icon=icon, text=name, tooltip=tooltip
-            )
-
-            # Add to Detail Window (Content)
-            self.detail_window.add_plugin_interface(plugin_id, widget, name)
-
-            # Add sidebar widget if provided (e.g. lyrics display)
-            try:
-                sidebar_widget = instance.get_sidebar_widget()
-                if sidebar_widget is not None:
-                    # Special case: Time plugin stays at the far end (stretch)
-                    is_stretch = plugin_id == "time"
-
-                    # Fetch configuration
-                    config = {}
-                    if hasattr(instance, "get_sidebar_widget_config"):
-                        config = instance.get_sidebar_widget_config()
-
-                    self.sidebar_window.add_sidebar_widget(
-                        sidebar_widget, stretch=is_stretch, config=config
-                    )
-            except Exception as e:
-                logger.warning(f"Plugin {plugin_id} get_sidebar_widget error: {e}")
-
-            # Register Plugin Shortcut (if any)
-            # We use the plugin_id as key. Default None (user must set it)
-            self.shortcut_manager.register_shortcut(
-                f"plugin.{plugin_id}",
-                None,
-                lambda pid=plugin_id: self._activate_plugin(pid),
-            )
+            self.plugin_manager.record_load_error(plugin_id, f"UI Error: {e}")
 
     def _activate_plugin(self, plugin_id):
         """Activate a specific plugin from shortcut."""
@@ -433,7 +509,21 @@ class AgileTilesApp:
         logger.info("Starting application...")
         # Start with just the sidebar visible? Or both?
         self.sidebar_window.show()
+
+        # Check for plugin errors after showing window
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(500, self._check_plugin_errors)
+
         return self.app.exec()
+
+    def _check_plugin_errors(self):
+        """Check for errors and show dialog if any."""
+        load_errors = self.plugin_manager.get_load_errors()
+        if load_errors:
+            # Use custom standalone dialog instead of MessageBox to avoid parent/mask issues
+            w = PluginErrorDialog(load_errors)
+            w.exec()
 
     def shutdown(self):
         """Shutdown the application."""

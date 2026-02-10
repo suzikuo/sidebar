@@ -2,8 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-from core.logger import logger
-
 
 class PathManager:
     """
@@ -101,6 +99,8 @@ class PathManager:
         """
         import shutil
 
+        from core.logger import logger
+
         root = Path(__file__).parent.parent.parent
         app_data = PathManager.get_app_data_root()
 
@@ -124,6 +124,8 @@ class PathManager:
         Migrate plugin files and directories from plugin dir to AppData.
         """
         import shutil
+
+        from core.logger import logger
 
         app_data_dir = PathManager.get_plugin_data_dir(plugin_id)
 

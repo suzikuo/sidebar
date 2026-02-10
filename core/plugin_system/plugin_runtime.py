@@ -21,15 +21,16 @@ class PluginRuntime:
         self.state_store = state_store
         self._loaded_plugins: Dict[str, Any] = {}
         self._schedulers: Dict[str, PluginScheduler] = {}
+        self.load_errors: Dict[str, str] = {}
 
     def load_plugin(self, manifest: Dict[str, Any], plugin_dir: str) -> bool:
         plugin_id = manifest["id"]
         api_version = manifest.get("api_version", "1.0")
 
         if not APIContract.check_compatibility(api_version):
-            logger.error(
-                f"Plugin {plugin_id} requires API version {api_version}, which is incompatible with current."
-            )
+            err_msg = f"Plugin {plugin_id} requires API version {api_version}, which is incompatible with current."
+            logger.error(err_msg)
+            self.load_errors[plugin_id] = err_msg
             return False
 
         # Create Scheduler and Context
@@ -71,11 +72,17 @@ class PluginRuntime:
             self._loaded_plugins[plugin_id] = instance
             instance.on_load()
 
+            # Clear error if successfully loaded (in case of retry)
+            if plugin_id in self.load_errors:
+                del self.load_errors[plugin_id]
+
             logger.info(f"Successfully loaded plugin: {plugin_id}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to load plugin {plugin_id}: {e}", exc_info=True)
+            err_msg = f"Failed to load plugin {plugin_id}: {e}"
+            logger.error(err_msg, exc_info=True)
+            self.load_errors[plugin_id] = str(e)
             scheduler.shutdown()
             del self._schedulers[plugin_id]
             return False

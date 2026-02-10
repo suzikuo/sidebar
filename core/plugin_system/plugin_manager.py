@@ -169,6 +169,14 @@ class PluginManager(QObject):
         """Returns the loaded plugin instance or None."""
         return self.runtime.get_plugin(plugin_id)
 
+    def get_load_errors(self) -> dict:
+        """Returns any errors that occurred during plugin loading."""
+        return self.runtime.load_errors
+
+    def record_load_error(self, plugin_id: str, error: str):
+        """Manually record a load error for a plugin."""
+        self.runtime.load_errors[plugin_id] = error
+
     def shutdown(self):
         """Shutdown all loaded plugins."""
         for plugin_id in list(self.runtime._loaded_plugins.keys()):
