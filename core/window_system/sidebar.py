@@ -141,23 +141,32 @@ class SidebarWindow(QWidget):
 
         self.update()
 
-    def add_sidebar_widget(self, widget: QWidget):
-        """Insert a plugin-provided widget into the sidebar layout."""
+    def add_sidebar_widget(self, widget: QWidget, stretch: bool = False):
+        """Insert a plugin-provided widget into the sidebar layout.
+
+        Args:
+            widget: The widget to insert.
+            stretch: If True, insert after the stretch (far right/bottom).
+                    If False, insert before the stretch (as a regular plugin widget).
+        """
         # 1. Inform widget of current orientation if it cares
         if hasattr(widget, "set_orientation"):
             widget.set_orientation(self.edge)
 
         # 2. Insert into layout
-        # Layout order: navigationInterface, [sidebar widgets…], stretch, spacing
-        # We insert before the stretch (which is the last item before spacing)
-        # However, to be safe, we can just insert after navigationInterface (idx 1)
-        # or before the stretch if we can find it.
-        # Let's find the stretch index.
-        idx = self.vBoxLayout.count() - 2  # Before stretch and spacing
-        if idx > 0:
+        # Layout order: navigationInterface, [regular widgets…], stretch, [stretch widgets…], spacing
+        if stretch:
+            # Insert at the very end (before spacing)
+            idx = self.vBoxLayout.count() - 1
             self.vBoxLayout.insertWidget(idx, widget)
         else:
-            self.vBoxLayout.addWidget(widget)
+            # Insert before the stretch
+            idx = self.vBoxLayout.count() - 2
+            if idx > 0:
+                self.vBoxLayout.insertWidget(idx, widget)
+            else:
+                self.vBoxLayout.addWidget(widget)
+
         self._sidebar_widgets.append(widget)
 
     def _update_style(self):

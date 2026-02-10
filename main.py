@@ -262,7 +262,11 @@ class AgileTilesApp:
             try:
                 sidebar_widget = instance.get_sidebar_widget()
                 if sidebar_widget is not None:
-                    self.sidebar_window.add_sidebar_widget(sidebar_widget)
+                    # Special case: Time plugin stays at the far end (stretch)
+                    is_stretch = plugin_id == "time"
+                    self.sidebar_window.add_sidebar_widget(
+                        sidebar_widget, stretch=is_stretch
+                    )
             except Exception as e:
                 logger.warning(f"Plugin {plugin_id} get_sidebar_widget error: {e}")
 

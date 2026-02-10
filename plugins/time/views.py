@@ -99,13 +99,15 @@ class TimeSettingsWidget(QWidget):
         color_layout = QHBoxLayout(self.color_card)
         color_layout.addWidget(BodyLabel("Font Color", self.color_card))
         color_layout.addStretch(1)
-        # Using a QSS-styled label or a simple color input for now
-        # because ColorPickerButton might be too complex for a quick refactor
-        # or require more context. Let's use a LineEdit for color hex initially.
-        self.color_input = LineEdit(self.color_card)
-        self.color_input.setPlaceholderText("e.g. white or #FF0000")
-        self.color_input.textChanged.connect(self._on_changed)
-        color_layout.addWidget(self.color_input)
+
+        from PySide6.QtGui import QColor
+        from qfluentwidgets import ColorPickerButton
+
+        self.color_picker = ColorPickerButton(
+            QColor("white"), "Select Color", self.color_card
+        )
+        self.color_picker.colorChanged.connect(self._on_changed)
+        color_layout.addWidget(self.color_picker)
         layout.addWidget(self.color_card)
 
         layout.addStretch(1)
@@ -113,20 +115,23 @@ class TimeSettingsWidget(QWidget):
     def set_config(self, config: dict):
         self.enable_switch.blockSignals(True)
         self.format_input.blockSignals(True)
-        self.color_input.blockSignals(True)
+        self.color_picker.blockSignals(True)
 
         self.enable_switch.setChecked(config.get("enabled", True))
         self.format_input.setText(config.get("format", "HH:mm"))
-        self.color_input.setText(config.get("color", "white"))
+
+        from PySide6.QtGui import QColor
+
+        self.color_picker.setColor(QColor(config.get("color", "white")))
 
         self.enable_switch.blockSignals(False)
         self.format_input.blockSignals(False)
-        self.color_input.blockSignals(False)
+        self.color_picker.blockSignals(False)
 
     def _on_changed(self):
         config = {
             "enabled": self.enable_switch.isChecked(),
             "format": self.format_input.text(),
-            "color": self.color_input.text(),
+            "color": self.color_picker.color.name(),
         }
         self.config_changed.emit(config)
