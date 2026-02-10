@@ -53,6 +53,7 @@ class WindowBehavior:
                 self.screen_geometry.width(),
                 peek_width,
             )
+
         elif self.is_left_edge:
             rect = QRect(
                 self.screen_geometry.left() - self.collapsed_width + peek_width,

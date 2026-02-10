@@ -145,7 +145,7 @@ class FluentSettingsCard(QWidget):
             icon=FluentIcon.LAYOUT,
             title="隐藏边框宽度",
             content="侧边栏隐藏时显示的边框宽度（像素）",
-            min_val=1,
+            min_val=0,
             max_val=10,
             value=self.settings_manager.get_setting("appearance", "peek_width", 2),
             callback=lambda val: self.settings_manager.set_setting(

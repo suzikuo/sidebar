@@ -37,8 +37,6 @@ class SidebarWindow(QWidget):
         self.detail_window = None  # Logic coordination
 
         # Get peek_width from settings
-        settings = self.state_store.get("settings", {}).get("appearance", {})
-        self.peek_width = settings.get("peek_width", 2)
 
         # Determine edge position from settings BEFORE creating layout
         settings = self.state_store.get("settings", {}).get("appearance", {})
@@ -136,6 +134,12 @@ class SidebarWindow(QWidget):
         self.setGeometry(self.behavior.get_hidden_geometry(peek_width=self.peek_width))
 
         # self.titleBar.hide()
+
+    @property
+    def peek_width(self):
+        settings = self.state_store.get("settings", {}).get("appearance", {})
+        peek_width = settings.get("peek_width", 2)
+        return peek_width
 
     def update_style(self):
         """Public method to refresh styles and repaint."""
@@ -321,12 +325,20 @@ class SidebarWindow(QWidget):
                 height,
             )
 
-        return WindowBehavior(
-            screen_geometry=virtual_screen,
-            width=48,
-            collapsed_width=48,
-            edge=edge,
-        )
+        if self.edge == "top":
+            return WindowBehavior(
+                screen_geometry=virtual_screen,
+                width=self.height(),
+                collapsed_width=self.height(),
+                edge=edge,
+            )
+        else:
+            return WindowBehavior(
+                screen_geometry=virtual_screen,
+                width=self.width(),
+                collapsed_width=self.width(),
+                edge=edge,
+            )
 
     def _init_behavior(self):
         """Legacy init helper."""
