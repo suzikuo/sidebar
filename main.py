@@ -264,8 +264,14 @@ class AgileTilesApp:
                 if sidebar_widget is not None:
                     # Special case: Time plugin stays at the far end (stretch)
                     is_stretch = plugin_id == "time"
+
+                    # Fetch configuration
+                    config = {}
+                    if hasattr(instance, "get_sidebar_widget_config"):
+                        config = instance.get_sidebar_widget_config()
+
                     self.sidebar_window.add_sidebar_widget(
-                        sidebar_widget, stretch=is_stretch
+                        sidebar_widget, stretch=is_stretch, config=config
                     )
             except Exception as e:
                 logger.warning(f"Plugin {plugin_id} get_sidebar_widget error: {e}")

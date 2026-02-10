@@ -1,6 +1,6 @@
 from PySide6.QtCore import QEvent, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
     FluentIcon,
@@ -46,29 +46,41 @@ class SidebarWindow(QWidget):
 
         # 1. Setup UI based on edge position
         if self.edge == "top":
+            self.vBoxLayout = QHBoxLayout(self)
             self.navigationInterface = HorizontalNavigationInterface(
                 self, showMenuButton=False, showReturnButton=False
             )
-
-            self.vBoxLayout = QHBoxLayout(self)
-            self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
-            self.vBoxLayout.addWidget(self.navigationInterface)
-
-            self.vBoxLayout.addStretch(1)
-            self.vBoxLayout.addSpacing(20)  # Bottom margin
-
         else:
-            # Vertical layout for left/right position - use NavigationInterface
+            self.vBoxLayout = QVBoxLayout(self)
             self.navigationInterface = NavigationInterface(
                 self, showMenuButton=False, showReturnButton=False
             )
 
-            self.vBoxLayout = QVBoxLayout(self)
-            self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
-            self.vBoxLayout.addWidget(self.navigationInterface)
+        self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
+        self.vBoxLayout.setSpacing(0)
+        self.vBoxLayout.addWidget(self.navigationInterface)
 
-            self.vBoxLayout.addStretch(1)
-            self.vBoxLayout.addSpacing(20)  # Bottom margin
+        # Scroll Area for plugin widgets
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QScrollArea.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("background: transparent;")
+
+        self.widget_container = QWidget()
+        self.widget_container.setStyleSheet("background: transparent;")
+        if self.edge == "top":
+            self.container_layout = QHBoxLayout(self.widget_container)
+        else:
+            self.container_layout = QVBoxLayout(self.widget_container)
+        self.container_layout.setContentsMargins(0, 0, 0, 0)
+        self.container_layout.setSpacing(5)
+        self.scroll_area.setWidget(self.widget_container)
+
+        self.vBoxLayout.addWidget(self.scroll_area)
+        self.vBoxLayout.addStretch(1)
+        self.vBoxLayout.addSpacing(20)  # Bottom margin
 
         # Force transparent background on all child widgets
         self.navigationInterface.setStyleSheet("""
@@ -141,31 +153,47 @@ class SidebarWindow(QWidget):
 
         self.update()
 
-    def add_sidebar_widget(self, widget: QWidget, stretch: bool = False):
+    def add_sidebar_widget(
+        self, widget: QWidget, stretch: bool = False, config: dict = None
+    ):
         """Insert a plugin-provided widget into the sidebar layout.
 
         Args:
             widget: The widget to insert.
             stretch: If True, insert after the stretch (far right/bottom).
-                    If False, insert before the stretch (as a regular plugin widget).
+                    If False, insert into the scrollable plugin area.
+            config: Optional dict with size constraints:
+                    {"max_height": int, "max_width": int, ...}
         """
         # 1. Inform widget of current orientation if it cares
         if hasattr(widget, "set_orientation"):
             widget.set_orientation(self.edge)
 
-        # 2. Insert into layout
-        # Layout order: navigationInterface, [regular widgets…], stretch, [stretch widgets…], spacing
+        # 2. Apply constraints if provided
+        if config:
+            if "max_height" in config:
+                widget.setMaximumHeight(config["max_height"])
+            if "max_width" in config:
+                widget.setMaximumWidth(config["max_width"])
+            if "min_height" in config:
+                widget.setMinimumHeight(config["min_height"])
+            if "min_width" in config:
+                widget.setMinimumWidth(config["min_width"])
+        elif not stretch:
+            # Default constraints for regular sidebar widgets to prevent clutter
+            if self.edge == "top":
+                widget.setMaximumWidth(200)
+            else:
+                widget.setMaximumHeight(100)
+
+        # 3. Insert into layout
         if stretch:
-            # Insert at the very end (before spacing)
+            # Fixed widgets stay in the main layout at the end (before spacing)
             idx = self.vBoxLayout.count() - 1
             self.vBoxLayout.insertWidget(idx, widget)
         else:
-            # Insert before the stretch
-            idx = self.vBoxLayout.count() - 2
-            if idx > 0:
-                self.vBoxLayout.insertWidget(idx, widget)
-            else:
-                self.vBoxLayout.addWidget(widget)
+            # Regular widgets go into the scrollable container
+            self.container_layout.addWidget(widget)
 
         self._sidebar_widgets.append(widget)
 

@@ -43,6 +43,17 @@ class PluginBase(ABC):
         Return None (default) if the plugin has no sidebar widget."""
         return None
 
+    def get_sidebar_widget_config(self) -> dict:
+        """Optional: Returns a dict with widget configuration:
+        {
+            "max_height": int,
+            "max_width": int,
+            "min_height": int,
+            "min_width": int
+        }
+        """
+        return {}
+
     def get_widget(self):
         """Deprecated: use get_card_widget instead."""
         return self.get_card_widget()

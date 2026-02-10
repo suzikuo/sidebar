@@ -10,7 +10,7 @@ from core.data_layer.path_utils import PathManager
 from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.frp_manager.models import DatabaseManager
-from plugins.frp_manager.views import FRPManagerWidget
+from plugins.frp_manager.views import FRPManagerWidget, FRPSidebarWidget
 
 
 class FRPManagerPlugin(PluginBase):
@@ -21,6 +21,7 @@ class FRPManagerPlugin(PluginBase):
     def __init__(self, context):
         super().__init__(context)
         self.ui_widget = None
+        self.sidebar_widget = None
 
         # Setup Data Paths
         self.data_dir = Path(self.context.get_data_dir())
@@ -53,6 +54,27 @@ class FRPManagerPlugin(PluginBase):
         if self.ui_widget is None:
             self.ui_widget = FRPManagerWidget(self.db, self)
         return self.ui_widget
+
+    def get_sidebar_widget(self) -> QWidget:
+        if self.sidebar_widget is None:
+            self.sidebar_widget = FRPSidebarWidget()
+            self._update_sidebar_status()
+        return self.sidebar_widget
+
+    def get_sidebar_widget_config(self) -> dict:
+        return {"max_height": 40, "max_width": 60}
+
+    def _update_sidebar_status(self):
+        if self.sidebar_widget:
+            running_count = sum(1 for p in self.processes.values() if p.poll() is None)
+            self.sidebar_widget.set_count(running_count)
+
+            # Visibility logic:
+            # 1. User must have enabled it in settings
+            # 2. Count must be > 0 (as per latest request)
+            show_setting = self.context.state.get("show_sidebar_status", True)
+            is_visible = show_setting and (running_count > 0)
+            self.sidebar_widget.setVisible(is_visible)
 
     def get_icon(self):
         return FluentIcon.IOT
@@ -107,6 +129,7 @@ class FRPManagerPlugin(PluginBase):
                 cwd=os.path.dirname(exe_path),
             )
             self.processes[config_id] = process
+            self._update_sidebar_status()
 
             # Notify success
             if self.context:
@@ -140,6 +163,7 @@ class FRPManagerPlugin(PluginBase):
                     process.kill()
 
             del self.processes[config_id]
+            self._update_sidebar_status()
 
             # Notify stop
             if self.context:
@@ -191,5 +215,7 @@ class FRPManagerPlugin(PluginBase):
                 del self.processes[config_id]
                 status_changed = True
 
-        if status_changed and self.ui_widget:
-            self.ui_widget.refresh_list()
+        if status_changed:
+            self._update_sidebar_status()
+            if self.ui_widget:
+                self.ui_widget.refresh_list()

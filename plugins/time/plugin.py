@@ -59,6 +59,10 @@ class TimePlugin(PluginBase):
 
         return self._clock_widget
 
+    def get_sidebar_widget_config(self) -> dict:
+        """Size constraints for the clock."""
+        return {"max_height": 120, "max_width": 200, "min_width": 40}
+
     def get_icon(self):
         return FluentIcon.DATE_TIME
 

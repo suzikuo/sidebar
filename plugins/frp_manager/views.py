@@ -229,8 +229,21 @@ class FRPManagerWidget(QWidget):
         self.addBtn = PushButton(FluentIcon.ADD, "Add FRP Config", self)
         self.addBtn.clicked.connect(self._on_add_clicked)
 
+        from qfluentwidgets import SwitchButton
+
+        self.sidebar_toggle = SwitchButton(self)
+        self.sidebar_toggle.setOnText("Sidebar Status On")
+        self.sidebar_toggle.setOffText("Sidebar Status Off")
+        # Load initial state from plugin
+        show_sidebar = self.plugin.context.state.get("show_sidebar_status", True)
+        self.sidebar_toggle.setChecked(show_sidebar)
+        self.sidebar_toggle.checkedChanged.connect(self._on_sidebar_toggle_changed)
+
         header.addWidget(self.titleLabel)
         header.addStretch(1)
+        header.addWidget(BodyLabel("Sidebar", self))
+        header.addWidget(self.sidebar_toggle)
+        header.addSpacing(20)
         header.addWidget(self.addBtn)
         self.mainLayout.addLayout(header)
 
@@ -385,3 +398,47 @@ class FRPManagerWidget(QWidget):
             InfoBar.error(
                 "Error", "Config file not found", duration=3000, parent=self.window()
             )
+
+    def _on_sidebar_toggle_changed(self, checked: bool):
+        """Update plugin state and notify to refresh sidebar."""
+        self.plugin.context.state.set("show_sidebar_status", checked)
+        self.plugin._update_sidebar_status()
+
+
+class FRPSidebarWidget(QWidget):
+    """Compact sidebar widget showing FRP tunnel count."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._count = 0
+        self._orientation = "vertical"
+        self._init_ui()
+
+    def _init_ui(self):
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        self.layout.setAlignment(Qt.AlignCenter)
+
+        self.label = StrongBodyLabel("FRP\n0", self)
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet("font-size: 10px; color: #107c10;")
+        self.layout.addWidget(self.label)
+
+    def set_orientation(self, orientation: str):
+        self._orientation = orientation
+        self._update_display()
+
+    def set_count(self, count: int):
+        self._count = count
+        self._update_display()
+
+    def _update_display(self):
+        if self._orientation == "top":
+            self.label.setText(f"FRP: {self._count}")
+        else:
+            self.label.setText(f"FRP\n{self._count}")
+
+        # Color based on whether any are running
+        color = "#107c10" if self._count > 0 else "#666666"
+        self.label.setStyleSheet(f"font-size: 10px; color: {color};")
