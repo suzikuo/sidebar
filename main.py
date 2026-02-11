@@ -214,6 +214,13 @@ class AgileTilesApp:
         self.event_bus.subscribe(
             "system:close_detail", lambda _: self.detail_window.hide_content()
         )
+        self.event_bus.subscribe("system:open_detail", self._on_open_detail_request)
+
+    def _on_open_detail_request(self, data: dict):
+        """Handle request to open a plugin detail view."""
+        plugin_id = data.get("plugin_id")
+        if plugin_id:
+            self._activate_plugin(plugin_id)
 
     def _on_system_notification(self, data: dict):
         """Handle system notification events."""

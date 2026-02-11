@@ -65,6 +65,9 @@ class TimePlugin(PluginBase):
             if self._alarm_manager:
                 self._clock_widget.set_alarm_manager(self._alarm_manager)
 
+            # Connect click to open detail view
+            self._clock_widget.clicked.connect(lambda: self.context.open_detail_view())
+
         return self._clock_widget
 
     def get_sidebar_widget_config(self) -> dict:

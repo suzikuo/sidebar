@@ -34,8 +34,10 @@ class ClockWidget(StrongBodyLabel):
     """
     A widget that displays the current time.
     When an alarm is <= 5 minutes away, switches to countdown mode.
-    Click toggles between shorthand countdown and detailed view (with label).
+    Click opens the alarm detail page.
     """
+
+    clicked = Signal()
 
     COUNTDOWN_THRESHOLD = 5 * 60  # 5 minutes in seconds
 
@@ -46,8 +48,8 @@ class ClockWidget(StrongBodyLabel):
         self._color = "white"
         self._orientation = "vertical"
         self._alarm_manager = None
-        self._show_detail = False  # Toggle for detailed countdown view
         self._in_countdown = False  # Whether currently showing countdown
+        self._tick_count = 0
         self._tick_count = 0
 
         self.timer = QTimer(self)
@@ -72,16 +74,8 @@ class ClockWidget(StrongBodyLabel):
         self.update_time()
 
     def mousePressEvent(self, e):
-        """Toggle between shorthand and detailed countdown view."""
-        if self._in_countdown and self._orientation != "top":
-            # Only toggle detail in vertical countdown mode if needed,
-            # or maybe toggle instant switch to countdown?
-            # For now let's keep it simple: click toggles detail info transparency/content
-            self._show_detail = not self._show_detail
-            self.update_time()
-        elif self._in_countdown and self._orientation == "top":
-            self._show_detail = not self._show_detail
-            self.update_time()
+        """Emit clicked signal."""
+        self.clicked.emit()
         super().mousePressEvent(e)
 
     def update_time(self):
@@ -106,7 +100,6 @@ class ClockWidget(StrongBodyLabel):
                     self._render_countdown(alarm_info)
         else:
             self._in_countdown = False
-            self._show_detail = False
             self._render_clock()
 
     def _render_clock(self):
@@ -124,17 +117,13 @@ class ClockWidget(StrongBodyLabel):
         mins = remaining // 60
         secs = remaining % 60
         countdown_str = f"{mins}:{secs:02d}"
-        label = info.get("label", "")
-        alarm_time = f"{info['hour']:02d}:{info['minute']:02d}"
 
         # Highlight color for countdown
         self.setStyleSheet("color: #FFB900; background: transparent;")
 
         # Vertical: stack characters
-        if self._show_detail and label:
-            lines = ["⏱️", alarm_time, label, countdown_str]
-        else:
-            lines = ["⏱️", countdown_str]
+        # Vertical: stack characters
+        lines = ["⏱️", countdown_str]
         self.setText("\n".join(lines))
 
     def _render_combined(self, info: dict):
@@ -144,14 +133,9 @@ class ClockWidget(StrongBodyLabel):
         # remaining = max(0, int(info["remaining_seconds"]))
         countdown_str = "⏱️"
 
-        label = info.get("label", "")
-
         self.setStyleSheet("color: #FFB900; background: transparent;")
 
-        if self._show_detail and label:
-            text = f"{current_time}   {countdown_str} ({label})"
-        else:
-            text = f"{current_time}   {countdown_str}"
+        text = f"{countdown_str}{current_time}"
 
         self.setText(text)
 

@@ -106,3 +106,8 @@ class PluginContext:
     def close_detail_view(self):
         """Requests the main application to close any open plugin detail view."""
         self._event_bus.publish("system:close_detail")
+
+    def open_detail_view(self, plugin_id: str = None):
+        """Requests the main application to open a specific plugin detail view."""
+        target_id = plugin_id or self._plugin_id
+        self._event_bus.publish("system:open_detail", {"plugin_id": target_id})
