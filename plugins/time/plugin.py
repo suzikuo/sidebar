@@ -4,6 +4,7 @@ from qfluentwidgets import FluentIcon
 
 from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
+from plugins.time.logic import AlarmManager
 from plugins.time.views import ClockWidget, TimeSettingsWidget
 
 
@@ -16,12 +17,17 @@ class TimePlugin(PluginBase):
         super().__init__(context)
         self._clock_widget = None
         self._settings_widget = None
+        self._alarm_manager = None
 
     def on_load(self):
         logger.info("Time plugin loaded.")
+        # Initialize Alarm Manager
+        self._alarm_manager = AlarmManager(self.context)
 
     def on_unload(self):
         logger.info("Time plugin unloaded.")
+        self._alarm_manager = None
+        self._settings_widget = None
 
     def get_thumbnail_widget(self) -> QWidget:
         # We can just return a simple label or icon
@@ -34,7 +40,7 @@ class TimePlugin(PluginBase):
     def get_card_widget(self) -> QWidget:
         """Returns the settings widget for the detail window."""
         if not self._settings_widget:
-            self._settings_widget = TimeSettingsWidget()
+            self._settings_widget = TimeSettingsWidget(self._alarm_manager)
             # Load current config - Fix state access
             config = self.context.state.get(
                 "config", {"enabled": True, "format": "HH:mm", "color": "white"}
