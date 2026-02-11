@@ -31,7 +31,7 @@ class TimePlugin(PluginBase):
 
     def get_thumbnail_widget(self) -> QWidget:
         # We can just return a simple label or icon
-        label = QLabel("⏰")
+        label = QLabel("⏱️")
         label.setFixedSize(40, 40)
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("font-size: 20px; color: white; background: transparent;")
@@ -62,12 +62,14 @@ class TimePlugin(PluginBase):
         if not self._clock_widget:
             self._clock_widget = ClockWidget()
             self._clock_widget.set_config(config.get("format"), config.get("color"))
+            if self._alarm_manager:
+                self._clock_widget.set_alarm_manager(self._alarm_manager)
 
         return self._clock_widget
 
     def get_sidebar_widget_config(self) -> dict:
         """Size constraints for the clock."""
-        return {"max_height": 120, "max_width": 200, "min_width": 40}
+        return {"max_height": 120, "max_width": 100, "min_width": 40}
 
     def get_icon(self):
         return FluentIcon.DATE_TIME

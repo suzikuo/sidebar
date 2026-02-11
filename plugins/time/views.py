@@ -33,8 +33,11 @@ from plugins.time.logic import DAY_NAMES_CN, format_days
 class ClockWidget(StrongBodyLabel):
     """
     A widget that displays the current time.
-    Supports customization of format and color via plugin state.
+    When an alarm is <= 5 minutes away, switches to countdown mode.
+    Click toggles between shorthand countdown and detailed view (with label).
     """
+
+    COUNTDOWN_THRESHOLD = 5 * 60  # 5 minutes in seconds
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,12 +45,21 @@ class ClockWidget(StrongBodyLabel):
         self._format = "HH:mm"
         self._color = "white"
         self._orientation = "vertical"
+        self._alarm_manager = None
+        self._show_detail = False  # Toggle for detailed countdown view
+        self._in_countdown = False  # Whether currently showing countdown
+        self._tick_count = 0
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_time)
         self.timer.start(1000)
 
+        self.setCursor(Qt.PointingHandCursor)
         self.update_time()
+
+    def set_alarm_manager(self, manager):
+        """Connect the alarm manager so we can query next alarm info."""
+        self._alarm_manager = manager
 
     def set_orientation(self, orientation: str):
         self._orientation = orientation
@@ -59,13 +71,89 @@ class ClockWidget(StrongBodyLabel):
         self.setStyleSheet(f"color: {color}; background: transparent;")
         self.update_time()
 
+    def mousePressEvent(self, e):
+        """Toggle between shorthand and detailed countdown view."""
+        if self._in_countdown and self._orientation != "top":
+            # Only toggle detail in vertical countdown mode if needed,
+            # or maybe toggle instant switch to countdown?
+            # For now let's keep it simple: click toggles detail info transparency/content
+            self._show_detail = not self._show_detail
+            self.update_time()
+        elif self._in_countdown and self._orientation == "top":
+            self._show_detail = not self._show_detail
+            self.update_time()
+        super().mousePressEvent(e)
+
     def update_time(self):
+        self._tick_count += 1
+        # Check if alarm is approaching
+        alarm_info = None
+        if self._alarm_manager:
+            alarm_info = self._alarm_manager.get_next_alarm_info()
+
+        if alarm_info and alarm_info["remaining_seconds"] <= self.COUNTDOWN_THRESHOLD:
+            self._in_countdown = True
+
+            if self._orientation == "top":
+                # Horizontal: Show combined
+                self._render_combined(alarm_info)
+            else:
+                # Vertical: Alternate every 5s
+                # 0-4: Clock, 5-9: Countdown
+                if (self._tick_count % 10) < 5:
+                    self._render_clock()
+                else:
+                    self._render_countdown(alarm_info)
+        else:
+            self._in_countdown = False
+            self._show_detail = False
+            self._render_clock()
+
+    def _render_clock(self):
+        """Normal clock display."""
+        self.setStyleSheet(f"color: {self._color}; background: transparent;")
         current_time = QTime.currentTime().toString(self._format)
         if self._orientation == "top":
             self.setText(current_time)
         else:
-            vertical_text = "\n".join(list(current_time))
-            self.setText(vertical_text)
+            self.setText("\n".join(list(current_time)))
+
+    def _render_countdown(self, info: dict):
+        """Countdown display when alarm is near (Vertical Only in this logic branch)."""
+        remaining = max(0, int(info["remaining_seconds"]))
+        mins = remaining // 60
+        secs = remaining % 60
+        countdown_str = f"{mins}:{secs:02d}"
+        label = info.get("label", "")
+        alarm_time = f"{info['hour']:02d}:{info['minute']:02d}"
+
+        # Highlight color for countdown
+        self.setStyleSheet("color: #FFB900; background: transparent;")
+
+        # Vertical: stack characters
+        if self._show_detail and label:
+            lines = ["⏱️", alarm_time, label, countdown_str]
+        else:
+            lines = ["⏱️", countdown_str]
+        self.setText("\n".join(lines))
+
+    def _render_combined(self, info: dict):
+        """Horizontal combined display: Time ... Countdown"""
+        current_time = QTime.currentTime().toString(self._format)
+
+        # remaining = max(0, int(info["remaining_seconds"]))
+        countdown_str = "⏱️"
+
+        label = info.get("label", "")
+
+        self.setStyleSheet("color: #FFB900; background: transparent;")
+
+        if self._show_detail and label:
+            text = f"{current_time}   {countdown_str} ({label})"
+        else:
+            text = f"{current_time}   {countdown_str}"
+
+        self.setText(text)
 
 
 # ────────────────────────────────────────────────────────────────

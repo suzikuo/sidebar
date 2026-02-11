@@ -116,6 +116,34 @@ class AlarmManager(QObject):
         self.alarms_changed.emit(self.alarms)
         self._schedule_next_alarm()
 
+    def get_next_alarm_info(self) -> Optional[Dict]:
+        """
+        Returns info about the next upcoming alarm, or None.
+        Result: {"fire_time": datetime, "remaining_seconds": float, "label": str, "hour": int, "minute": int}
+        """
+        now = datetime.datetime.now()
+        nearest_dt = None
+        nearest_alarm = None
+
+        for alarm in self.alarms:
+            if not alarm.get("enabled", True):
+                continue
+            fire_time = self._next_fire_time(alarm, now)
+            if fire_time and (nearest_dt is None or fire_time < nearest_dt):
+                nearest_dt = fire_time
+                nearest_alarm = alarm
+
+        if nearest_dt and nearest_alarm:
+            remaining = (nearest_dt - now).total_seconds()
+            return {
+                "fire_time": nearest_dt,
+                "remaining_seconds": remaining,
+                "label": nearest_alarm.get("label", ""),
+                "hour": nearest_alarm.get("hour", 0),
+                "minute": nearest_alarm.get("minute", 0),
+            }
+        return None
+
     def _save_alarms(self):
         self.state.set("alarms", self.alarms)
 
