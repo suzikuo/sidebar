@@ -158,6 +158,7 @@ class AgileTilesApp:
 
         # 2.1 Initialize Shortcut Manager
         self.shortcut_manager = ShortcutManager(self.settings_manager)
+        self.shortcut_manager.install_filter(self.app)
 
         # 3. Apply saved settings to theme engine
         self._apply_saved_settings()
@@ -239,29 +240,8 @@ class AgileTilesApp:
         """Register global shortcuts."""
         # Toggle Sidebar (Expand/Collapse)
         self.shortcut_manager.register_shortcut(
-            "toggle_sidebar", "alt+space", self._toggle_sidebar
+            "toggle_sidebar", "alt+space", self._do_toggle_sidebar
         )
-
-    def _toggle_sidebar(self):
-        """Toggle sidebar expand/collapse (Thread-safe wrapper)."""
-        # Ensure this runs on main thread if needed, but QWidget.show/hide are usually safe
-        # Or trigger via signal if issues arise
-        if self.sidebar_window.isVisible():
-            # If visible but not active, maybe activate it?
-            # Or just hide it. Let's implementing toggle logic.
-            # But sidebar implies "Show" mostly.
-            # If hidden, show. If shown, hide?
-            # Usually global shortcut is for "Show / Bring to front"
-            pass
-
-        # We need a proper toggle.
-        # Check if window is foreground.
-        # For now, let's just make it show/hide based on current state.
-
-        # Use QMetaObject.invokeMethod to ensure thread safety with GUI
-        from PySide6.QtCore import QMetaObject, Qt
-
-        QMetaObject.invokeMethod(self.signals, "toggle_sidebar", Qt.QueuedConnection)
 
     def _do_toggle_sidebar(self):
         """Actual toggle logic running in main thread."""
@@ -370,11 +350,7 @@ class AgileTilesApp:
 
     def _activate_plugin(self, plugin_id):
         """Activate a specific plugin from shortcut."""
-        from PySide6.QtCore import Q_ARG, QMetaObject, Qt
-
-        QMetaObject.invokeMethod(
-            self.signals, "activate_plugin", Qt.QueuedConnection, Q_ARG(str, plugin_id)
-        )
+        self._do_activate_plugin(plugin_id)
 
     def _do_activate_plugin(self, plugin_id):
         """Actual activation logic."""
