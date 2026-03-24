@@ -134,6 +134,11 @@ class AppSignals(QObject):
 
 class AgileTilesApp:
     def __init__(self):
+        # Make app_instance available globally for plugins during loading
+        import __main__
+
+        __main__.app_instance = self
+
         self.signals = AppSignals(self)
         self.app = app  # Use the global QApplication
 
@@ -556,10 +561,4 @@ class AgileTilesApp:
 
 if __name__ == "__main__":
     app_instance = AgileTilesApp()
-
-    # Make app_instance available globally for settings
-    import __main__
-
-    __main__.app_instance = app_instance
-
     sys.exit(app_instance.run())

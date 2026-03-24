@@ -312,6 +312,9 @@ class ShortcutManager:
     def _on_settings_changed(self, category, key, value):
         """Handle settings changes to update shortcuts."""
         if category == "shortcuts":
-            if key in self.shortcuts:
-                self.shortcuts[key]["hotkey"] = value
-                self._apply_shortcut(key)
+            self.change_shortcut(key, value)
+
+    def change_shortcut(self, key, value):
+        if key in self.shortcuts:
+            self.shortcuts[key]["hotkey"] = value
+            self._apply_shortcut(key)
