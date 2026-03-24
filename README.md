@@ -46,7 +46,7 @@ Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的现代
 ## 代码架构
 
 ```
-agile-tiles-master/
+sidebar/
 ├── main.py                 # 应用入口点
 ├── requirements.txt        # 依赖列表
 ├── core/                   # 核心模块
@@ -108,7 +108,18 @@ from qfluentwidgets import setTheme, Theme, setThemeColor
 
 ## 核心功能
 
-### 1. 主题系统
+### 1. 内置插件与功用介绍
+Agile Tiles 基于插件化架构，内置了多款开箱即用的实用效率和开发组件：
+
+- ⏱️ **Time (时钟与倒计时)**：一个优雅的侧边栏时钟挂件，支持添加与管理闹钟任务。特别提供 **桌面悬浮时钟** 模式，并且可以在到达闹铃设定前5分钟无缝切换成显眼的倒计时，挂件支持穿透防误触、无边框与自适应拖拽定位。
+- 📖 **ThiefBook (摸鱼阅读器)**：采用类似“桌面歌词”悬浮窗设计的 txt 阅读器插件。支持热键翻页、老板键快捷隐藏；支持自定义样式大小，并且在调整配置时搭载了绝对进度锚点算法，保证缩放文本不丢进度。
+- 🛠️ **Toolbox (开发工具箱)**：集成了诸如 `端口转发管理 (netsh Portproxy)` 规则可视化增删改查等日常系统运维和网络代理小工具。
+- 🔗 **SSH Manager (SSH 会话管理)**：可建立、添加与整理多台远程服务器环境的快捷 SSH 连接。
+- 🚇 **FRP Manager (内网穿透管理)**：可视化管理与对接 FRP 内网穿透隧道配置及监控服务启动状态。
+- 🚀 **App Launcher (应用启动器)**：便于存放和快速拉起常用的本地应用与常用目录。
+- 🔖 **Bookmarks (书签管理)**：可分门别类地收纳高频访问的开发测试网页链接与系统命令书签。
+
+### 2. 主题系统
 ```python
 from qfluentwidgets import setTheme, Theme, setThemeColor
 
@@ -121,7 +132,7 @@ setTheme(Theme.AUTO)    # 跟随系统
 setThemeColor("#FF6B9D")  # 自定义颜色
 ```
 
-### 2. 插件系统
+### 3. 插件系统接入点
 每个插件需要：
 - `manifest.json` - 插件元数据
 - `plugin.py` - 继承 `PluginBase` 的实现类
@@ -141,7 +152,7 @@ class TodoPlugin(PluginBase):
         return self._build_ui()
 ```
 
-### 3. 设置界面
+### 4. 设置界面
 使用 `SettingCardGroup` 组织设置项：
 ```python
 # 创建设置组
@@ -351,3 +362,7 @@ icon = FluentIcon.PALETTE
 - 修复 qfluentwidgets 库兼容性问题
 - 重构 main.py 导入顺序
 - 重写 fluent_settings_card.py 使用兼容 API
+
+### 2026-03-24
+- [Time] 为时钟/倒计时插件新增透明无边框、支持拖拽及防误触锁定的桌面时钟模式
+- [ThiefBook] 修复在阅读器中调整“单页字数”或“字体”时意外丢失阅读进度（自动重置页码）的问题，引入绝对进度锚点进行无缝重排
