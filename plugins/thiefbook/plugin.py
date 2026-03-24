@@ -126,12 +126,25 @@ class ThiefBookPlugin(PluginBase):
     # ── Logic ──
 
     def _on_config_changed(self, config: dict):
-        # Preserve show_lyrics state (which might not be in config UI)
+        # Preserve show_lyrics state and window position (which are not in config UI)
         old_config = self.context.state.get("config", {})
         config["show_lyrics"] = old_config.get("show_lyrics", True)
+        if "window_x" in old_config:
+            config["window_x"] = old_config["window_x"]
+        if "window_y" in old_config:
+            config["window_y"] = old_config["window_y"]
+
+        self._reader.update_config(config)
+
+        # Update the config dict with potentially adjusted current_page from reader
+        # (happens when page_length changes and paginator centers on previous text)
+        if config.get("current_page", 1) != self._reader.current_page:
+            config["current_page"] = self._reader.current_page
+            if self._config_widget:
+                self._config_widget.update_page_display(config["current_page"])
 
         self.context.state.set("config", config)
-        self._reader.update_config(config)
+
         if self._lyrics_widget:
             self._lyrics_widget.apply_config(config)
         self._update_lyrics()

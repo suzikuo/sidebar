@@ -11,7 +11,15 @@ class ThiefBookReader:
         self.line_break = " "
         self._content = ""
         self._pages = []
+        self._page_start_indices = []
+        self._exact_char_idx = 0
         self._is_boss_key_active = False
+
+    def _update_exact_char(self):
+        if hasattr(self, "_page_start_indices") and 1 <= self.current_page <= len(self._page_start_indices):
+            self._exact_char_idx = self._page_start_indices[self.current_page - 1]
+        else:
+            self._exact_char_idx = 0
         self._boss_key_texts = [
             'print("Hello World")',
             'console.log("Hello World");',
@@ -28,23 +36,43 @@ class ThiefBookReader:
         old_length = self.page_length
         old_english = self.is_english
 
-        self.txt_path = config.get("txt_path", "")
-        self.current_page = config.get("current_page", 1)
-        self.page_length = config.get("page_length", 50)
-        self.is_english = config.get("is_english", False)
+        new_path = config.get("txt_path", "")
+        new_length = config.get("page_length", 50)
+        new_english = config.get("is_english", False)
+
+        repaginating = (new_path == old_path) and (new_length != old_length or new_english != old_english)
+
+        user_page = config.get("current_page", 1)
+
+        self.txt_path = new_path
+        self.page_length = new_length
+        self.is_english = new_english
         self.line_break = config.get("line_break", " ")
         if self.line_break == "":
             self.line_break = " "
 
-        # Reload if path or pagination parameters changed
-        if (
-            (self.txt_path != old_path)
-            or (self.page_length != old_length)
-            or (self.is_english != old_english)
-        ):
+        if self.txt_path != old_path:
             self.load_file()
-            # Boundary check for current_page after reloading
+            self.current_page = user_page
             self._ensure_page_bounds()
+            self._update_exact_char()
+        elif repaginating:
+            target_char_idx = getattr(self, "_exact_char_idx", 0)
+            self.load_file()
+            new_page = 1
+            for i, start_idx in enumerate(self._page_start_indices):
+                if start_idx <= target_char_idx:
+                    new_page = i + 1
+                else:
+                    break
+            self.current_page = new_page
+            self._ensure_page_bounds()
+            # Do NOT update _exact_char_idx here, preserve the anchor!
+        else:
+            if self.current_page != user_page:
+                self.current_page = user_page
+                self._ensure_page_bounds()
+                self._update_exact_char()
 
     def load_file(self):
         """Read the TXT file into memory and paginate it."""
@@ -71,6 +99,7 @@ class ThiefBookReader:
     def _paginate(self):
         """Split content into pages based on page_length."""
         self._pages = []
+        self._page_start_indices = []
         if not self._content:
             return
 
@@ -85,6 +114,7 @@ class ThiefBookReader:
                 # Find the next space after idx + page_length
                 end_idx = idx + self.page_length
                 if end_idx >= total_len:
+                    self._page_start_indices.append(idx)
                     self._pages.append(
                         self._content[idx:].replace("\n", self.line_break)
                     )
@@ -96,11 +126,13 @@ class ThiefBookReader:
 
                 chunk = self._content[idx:end_idx].strip()
                 if chunk:
+                    self._page_start_indices.append(idx)
                     self._pages.append(chunk.replace("\n", self.line_break))
                 idx = end_idx + 1
             else:
                 chunk = self._content[idx : idx + self.page_length].strip()
                 if chunk:
+                    self._page_start_indices.append(idx)
                     self._pages.append(chunk.replace("\n", self.line_break))
                 idx += self.page_length
 
@@ -137,6 +169,7 @@ class ThiefBookReader:
 
         if self._pages and self.current_page < len(self._pages):
             self.current_page += 1
+            self._update_exact_char()
             return True
         return False
 
@@ -148,6 +181,7 @@ class ThiefBookReader:
 
         if self._pages and self.current_page > 1:
             self.current_page -= 1
+            self._update_exact_char()
             return True
         return False
 
@@ -159,7 +193,10 @@ class ThiefBookReader:
         old_page = self.current_page
         self.current_page = page
         self._ensure_page_bounds()
-        return old_page != self.current_page
+        if old_page != self.current_page:
+            self._update_exact_char()
+            return True
+        return False
 
     def toggle_boss_key(self):
         """Toggles the boss key mode."""
@@ -184,12 +221,14 @@ class ThiefBookReader:
         for i in range(start_idx, len(self._pages)):
             if keyword in self._pages[i]:
                 self.current_page = i + 1
+                self._update_exact_char()
                 return True
 
         # Wrap around from beginning to current page
         for i in range(0, start_idx):
             if keyword in self._pages[i]:
                 self.current_page = i + 1
+                self._update_exact_char()
                 return True
 
         return False

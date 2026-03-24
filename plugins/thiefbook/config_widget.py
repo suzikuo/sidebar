@@ -88,7 +88,6 @@ class ConfigWidget(QWidget):
         self.length_input = SpinBox(self.length_card)
         self.length_input.setRange(10, 500)
         self.length_input.valueChanged.connect(self._on_changed)
-        page_layout.addWidget(self.length_input)  # Note: put it in a separate row
         length_layout.addWidget(self.length_input)
         layout.addWidget(self.length_card)
 
