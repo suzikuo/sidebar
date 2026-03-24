@@ -6,6 +6,7 @@ from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.time.logic import AlarmManager
 from plugins.time.views import ClockWidget, TimeSettingsWidget
+from plugins.time.desktop_clock import DesktopClockWidget
 
 
 class TimePlugin(PluginBase):
@@ -18,16 +19,36 @@ class TimePlugin(PluginBase):
         self._clock_widget = None
         self._settings_widget = None
         self._alarm_manager = None
+        self._desktop_clock = None
 
     def on_load(self):
         logger.info("Time plugin loaded.")
         # Initialize Alarm Manager
         self._alarm_manager = AlarmManager(self.context)
 
+        config = self.context.state.get(
+            "config", {"enabled": True, "format": "HH:mm", "color": "white"}
+        )
+
+        if not self._desktop_clock:
+            self._desktop_clock = DesktopClockWidget()
+            self._desktop_clock.set_alarm_manager(self._alarm_manager)
+            self._desktop_clock.position_changed.connect(self._on_desktop_clock_moved)
+
+        self._desktop_clock.apply_config(config)
+
+        if config.get("show_desktop", False):
+            self._desktop_clock.show()
+        else:
+            self._desktop_clock.hide()
+
     def on_unload(self):
         logger.info("Time plugin unloaded.")
         self._alarm_manager = None
         self._settings_widget = None
+        if self._desktop_clock:
+            self._desktop_clock.close()
+            self._desktop_clock = None
 
     def get_thumbnail_widget(self) -> QWidget:
         # We can just return a simple label or icon
@@ -77,7 +98,20 @@ class TimePlugin(PluginBase):
     def get_icon(self):
         return FluentIcon.DATE_TIME
 
+    def _on_desktop_clock_moved(self, x: int, y: int):
+        config = self.context.state.get("config", {})
+        config["desktop_x"] = x
+        config["desktop_y"] = y
+        self.context.state.set("config", config)
+
     def _on_config_changed(self, config: dict):
+        # Preserve window position (which is not in config UI)
+        old_config = self.context.state.get("config", {})
+        if "desktop_x" in old_config:
+            config["desktop_x"] = old_config["desktop_x"]
+        if "desktop_y" in old_config:
+            config["desktop_y"] = old_config["desktop_y"]
+
         # Save to plugin state - Fix state access
         self.context.state.set("config", config)
 
@@ -85,6 +119,13 @@ class TimePlugin(PluginBase):
         if self._clock_widget:
             self._clock_widget.set_config(config.get("format"), config.get("color"))
             self._clock_widget.setVisible(config.get("enabled", True))
+            
+        if self._desktop_clock:
+            self._desktop_clock.apply_config(config)
+            if config.get("show_desktop", False):
+                self._desktop_clock.show()
+            else:
+                self._desktop_clock.hide()
 
         # Note: If 'enabled' changed from False to True, main application
         # might need to re-add the widget. Since sidebar_widget is loaded

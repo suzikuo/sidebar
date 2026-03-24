@@ -22,6 +22,7 @@ from qfluentwidgets import (
     StrongBodyLabel,
     SwitchButton,
     TimePicker,
+    SpinBox,
 )
 
 from plugins.time.logic import DAY_NAMES_CN, format_days
@@ -494,12 +495,22 @@ class TimeSettingsWidget(QWidget):
         # Enable/Disable
         self.enable_card = CardWidget(parent)
         enable_layout = QHBoxLayout(self.enable_card)
-        enable_layout.addWidget(BodyLabel("显示时钟", self.enable_card))
+        enable_layout.addWidget(BodyLabel("侧边栏显示时钟", self.enable_card))
         enable_layout.addStretch(1)
         self.enable_switch = SwitchButton(self.enable_card)
         self.enable_switch.checkedChanged.connect(self._on_changed)
         enable_layout.addWidget(self.enable_switch)
         layout.addWidget(self.enable_card)
+
+        # Desktop Enable
+        self.desktop_enable_card = CardWidget(parent)
+        desktop_enable_layout = QHBoxLayout(self.desktop_enable_card)
+        desktop_enable_layout.addWidget(BodyLabel("桌面显示时钟", self.desktop_enable_card))
+        desktop_enable_layout.addStretch(1)
+        self.desktop_enable_switch = SwitchButton(self.desktop_enable_card)
+        self.desktop_enable_switch.checkedChanged.connect(self._on_changed)
+        desktop_enable_layout.addWidget(self.desktop_enable_switch)
+        layout.addWidget(self.desktop_enable_card)
 
         # Format
         self.format_card = CardWidget(parent)
@@ -525,25 +536,58 @@ class TimeSettingsWidget(QWidget):
         color_layout.addWidget(self.color_picker)
         layout.addWidget(self.color_card)
 
+        # Desktop Font Size
+        self.desktop_font_size_card = CardWidget(parent)
+        desktop_font_size_layout = QHBoxLayout(self.desktop_font_size_card)
+        desktop_font_size_layout.addWidget(BodyLabel("桌面时钟字号(仅限桌面)", self.desktop_font_size_card))
+        desktop_font_size_layout.addStretch(1)
+        self.desktop_font_size_input = SpinBox(self.desktop_font_size_card)
+        self.desktop_font_size_input.setRange(12, 200)
+        self.desktop_font_size_input.valueChanged.connect(self._on_changed)
+        desktop_font_size_layout.addWidget(self.desktop_font_size_input)
+        layout.addWidget(self.desktop_font_size_card)
+
+        # Lock Desktop Clock
+        self.desktop_lock_card = CardWidget(parent)
+        desktop_lock_layout = QHBoxLayout(self.desktop_lock_card)
+        desktop_lock_layout.addWidget(BodyLabel("锁定桌面时钟", self.desktop_lock_card))
+        desktop_lock_layout.addStretch(1)
+        self.desktop_lock_switch = SwitchButton(self.desktop_lock_card)
+        self.desktop_lock_switch.checkedChanged.connect(self._on_changed)
+        desktop_lock_layout.addWidget(self.desktop_lock_switch)
+        layout.addWidget(self.desktop_lock_card)
+
         layout.addStretch(1)
 
     def set_config(self, config: dict):
         self.enable_switch.blockSignals(True)
         self.format_input.blockSignals(True)
         self.color_picker.blockSignals(True)
+        self.desktop_enable_switch.blockSignals(True)
+        self.desktop_font_size_input.blockSignals(True)
+        self.desktop_lock_switch.blockSignals(True)
 
         self.enable_switch.setChecked(config.get("enabled", True))
         self.format_input.setText(config.get("format", "HH:mm"))
         self.color_picker.setColor(QColor(config.get("color", "white")))
+        self.desktop_enable_switch.setChecked(config.get("show_desktop", False))
+        self.desktop_font_size_input.setValue(config.get("desktop_font_size", 32))
+        self.desktop_lock_switch.setChecked(config.get("desktop_locked", False))
 
         self.enable_switch.blockSignals(False)
         self.format_input.blockSignals(False)
         self.color_picker.blockSignals(False)
+        self.desktop_enable_switch.blockSignals(False)
+        self.desktop_font_size_input.blockSignals(False)
+        self.desktop_lock_switch.blockSignals(False)
 
     def _on_changed(self):
         config = {
             "enabled": self.enable_switch.isChecked(),
             "format": self.format_input.text(),
             "color": self.color_picker.color.name(),
+            "show_desktop": self.desktop_enable_switch.isChecked(),
+            "desktop_font_size": self.desktop_font_size_input.value(),
+            "desktop_locked": self.desktop_lock_switch.isChecked(),
         }
         self.config_changed.emit(config)
