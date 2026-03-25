@@ -461,6 +461,12 @@ class AgileTilesApp:
         # Create tray menu
         tray_menu = QMenu()
 
+        toggle_action = QAction("显示/隐藏", self.app)
+        toggle_action.triggered.connect(self._do_toggle_sidebar)
+        tray_menu.addAction(toggle_action)
+
+        tray_menu.addSeparator()
+
         restart_action = QAction("Restart", self.app)
         restart_action.triggered.connect(self.restart)
         tray_menu.addAction(restart_action)
