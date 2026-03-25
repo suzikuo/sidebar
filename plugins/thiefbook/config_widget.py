@@ -153,9 +153,19 @@ class ConfigWidget(QWidget):
         lock_layout.addWidget(BodyLabel("锁定歌词窗口", self.lock_card))
         lock_layout.addStretch(1)
         self.lock_switch = SwitchButton(self.lock_card)
-        self.lock_switch.checkedChanged.connect(self._on_changed)
+        self.lock_switch.checkedChanged.connect(self._on_lock_changed)
         lock_layout.addWidget(self.lock_switch)
         layout.addWidget(self.lock_card)
+
+        # ── Show Control Buttons ──
+        self.show_buttons_card = CardWidget(self)
+        show_buttons_layout = QHBoxLayout(self.show_buttons_card)
+        show_buttons_layout.addWidget(BodyLabel("显示控制按钮", self.show_buttons_card))
+        show_buttons_layout.addStretch(1)
+        self.show_buttons_switch = SwitchButton(self.show_buttons_card)
+        self.show_buttons_switch.checkedChanged.connect(self._on_changed)
+        show_buttons_layout.addWidget(self.show_buttons_switch)
+        layout.addWidget(self.show_buttons_card)
 
         # ── Shortcuts ──
         self._add_shortcut_card(
@@ -207,6 +217,9 @@ class ConfigWidget(QWidget):
         self.font_color_picker.setColor(QColor(config.get("font_color", "#FFFFFF")))
         self.bg_opacity_slider.setValue(config.get("bg_opacity", 100))
         self.lock_switch.setChecked(config.get("is_locked", False))
+        self.show_buttons_switch.setChecked(config.get("show_buttons", True))
+        # Disable show_buttons switch when locked
+        self.show_buttons_switch.setEnabled(not config.get("is_locked", False))
 
         self.blockSignals(False)
 
@@ -216,6 +229,10 @@ class ConfigWidget(QWidget):
             if action_id in self._shortcut_inputs:
                 self._shortcut_inputs[action_id].setText(hotkey)
         self.blockSignals(False)
+
+    def _on_lock_changed(self, is_locked):
+        self.show_buttons_switch.setEnabled(not is_locked)
+        self._on_changed()
 
     def _on_changed(self):
         config = {
@@ -228,6 +245,7 @@ class ConfigWidget(QWidget):
             "font_color": self.font_color_picker.color.name(),
             "bg_opacity": self.bg_opacity_slider.value(),
             "is_locked": self.lock_switch.isChecked(),
+            "show_buttons": self.show_buttons_switch.isChecked(),
         }
         self.config_changed.emit(config)
 

@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 
 class LyricsWidget(QWidget):
@@ -10,6 +10,9 @@ class LyricsWidget(QWidget):
     """
 
     position_changed = Signal(int, int)
+    prev_clicked = Signal()
+    next_clicked = Signal()
+    close_clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -17,6 +20,7 @@ class LyricsWidget(QWidget):
         self._is_locked = False
         self._font_size = 16
         self._font_color = "#FFFFFF"
+        self._show_buttons = True
         self._init_ui()
         self._drag_pos = None
 
@@ -32,22 +36,80 @@ class LyricsWidget(QWidget):
 
         self.resize(800, 60)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(5)
 
         self.label = QLabel(self)
         self.label.setText("Thief Book: 等待加载...")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        main_layout.addWidget(self.label, 1)
+
+        # ── Control Buttons ──
+        self._btn_container = QWidget(self)
+        self._btn_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        btn_layout = QHBoxLayout(self._btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(2)
+
+        btn_style = """
+            QPushButton {
+                background-color: rgba(255, 255, 255, 30);
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 24px;
+                max-width: 24px;
+                min-height: 24px;
+                max-height: 24px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 80);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 120);
+            }
+        """
+
+        self._prev_btn = QPushButton("↑", self._btn_container)
+        self._prev_btn.setStyleSheet(btn_style)
+        self._prev_btn.setToolTip("上一页")
+        self._prev_btn.clicked.connect(self.prev_clicked.emit)
+        btn_layout.addWidget(self._prev_btn)
+
+        self._next_btn = QPushButton("↓", self._btn_container)
+        self._next_btn.setStyleSheet(btn_style)
+        self._next_btn.setToolTip("下一页")
+        self._next_btn.clicked.connect(self.next_clicked.emit)
+        btn_layout.addWidget(self._next_btn)
+
+        self._close_btn = QPushButton("×", self._btn_container)
+        self._close_btn.setStyleSheet(btn_style)
+        self._close_btn.setToolTip("关闭")
+        self._close_btn.clicked.connect(self.close_clicked.emit)
+        btn_layout.addWidget(self._close_btn)
+
+        main_layout.addWidget(self._btn_container)
+
         # Style the label to look like desktop lyrics
         self._update_label_style()
-
-        layout.addWidget(self.label)
 
     def _update_label_style(self):
         font = QFont("Microsoft YaHei", self._font_size, QFont.Weight.Bold)
         self.label.setFont(font)
         self.label.setStyleSheet(f"color: {self._font_color};")
+
+    def set_buttons_visible(self, visible: bool):
+        """Show or hide the control buttons."""
+        self._show_buttons = visible
+        # When locked, always hide buttons regardless of the setting
+        if self._is_locked:
+            self._btn_container.setVisible(False)
+        else:
+            self._btn_container.setVisible(visible)
 
     def apply_config(self, config: dict):
         self._font_size = config.get("font_size", 16)
@@ -66,6 +128,10 @@ class LyricsWidget(QWidget):
                 flags &= ~Qt.WindowType.WindowTransparentForInput
             self.setWindowFlags(flags)
             self.show()  # Required to apply flag changes on Windows
+
+        # Update button visibility based on config and lock state
+        show_buttons = config.get("show_buttons", True)
+        self.set_buttons_visible(show_buttons)
 
         # Restore position if present
         if "window_x" in config and "window_y" in config:

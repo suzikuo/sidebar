@@ -37,6 +37,7 @@ class ThiefBookPlugin(PluginBase):
                 "bg_opacity": 100,
                 "is_locked": False,
                 "show_lyrics": True,
+                "show_buttons": True,
             },
         )
         self._reader.update_config(config)
@@ -45,6 +46,9 @@ class ThiefBookPlugin(PluginBase):
         if not self._lyrics_widget:
             self._lyrics_widget = LyricsWidget()
             self._lyrics_widget.position_changed.connect(self._on_lyrics_moved)
+            self._lyrics_widget.prev_clicked.connect(self._do_prev_page)
+            self._lyrics_widget.next_clicked.connect(self._do_next_page)
+            self._lyrics_widget.close_clicked.connect(self._do_toggle_lyrics)
 
         self._lyrics_widget.apply_config(config)
         self._update_lyrics()
@@ -89,6 +93,7 @@ class ThiefBookPlugin(PluginBase):
                     "bg_opacity": 100,
                     "is_locked": False,
                     "show_lyrics": True,
+                    "show_buttons": True,
                 },
             )
             self._config_widget.set_config(config)
