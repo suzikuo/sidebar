@@ -53,41 +53,17 @@ class LyricsWidget(QWidget):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(2)
 
-        btn_style = """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 30);
-                color: #FFFFFF;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 24px;
-                max-width: 24px;
-                min-height: 24px;
-                max-height: 24px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 80);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 120);
-            }
-        """
-
         self._prev_btn = QPushButton("↑", self._btn_container)
-        self._prev_btn.setStyleSheet(btn_style)
         self._prev_btn.setToolTip("上一页")
         self._prev_btn.clicked.connect(self.prev_clicked.emit)
         btn_layout.addWidget(self._prev_btn)
 
         self._next_btn = QPushButton("↓", self._btn_container)
-        self._next_btn.setStyleSheet(btn_style)
         self._next_btn.setToolTip("下一页")
         self._next_btn.clicked.connect(self.next_clicked.emit)
         btn_layout.addWidget(self._next_btn)
 
         self._close_btn = QPushButton("×", self._btn_container)
-        self._close_btn.setStyleSheet(btn_style)
         self._close_btn.setToolTip("关闭")
         self._close_btn.clicked.connect(self.close_clicked.emit)
         btn_layout.addWidget(self._close_btn)
@@ -101,6 +77,31 @@ class LyricsWidget(QWidget):
         font = QFont("Microsoft YaHei", self._font_size, QFont.Weight.Bold)
         self.label.setFont(font)
         self.label.setStyleSheet(f"color: {self._font_color};")
+
+        # Update button styles to match lyrics font color
+        c = QColor(self._font_color)
+        btn_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {self._font_color};
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 24px;
+                max-width: 24px;
+                min-height: 24px;
+                max-height: 24px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba({c.red()}, {c.green()}, {c.blue()}, 40);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba({c.red()}, {c.green()}, {c.blue()}, 80);
+            }}
+        """
+        for btn in (self._prev_btn, self._next_btn, self._close_btn):
+            btn.setStyleSheet(btn_style)
 
     def set_buttons_visible(self, visible: bool):
         """Show or hide the control buttons."""
