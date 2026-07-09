@@ -18,6 +18,15 @@ class SSHManagerPlugin(PluginBase):
     Plugin to manage and launch SSH connections.
     """
 
+    SSH_KEEPALIVE_OPTIONS = (
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=6",
+        "-o",
+        "TCPKeepAlive=yes",
+    )
+
     def __init__(self, context):
         super().__init__(context)
         self.ui_widget = None
@@ -57,7 +66,6 @@ class SSHManagerPlugin(PluginBase):
         if self.ui_widget is None:
             self.ui_widget = SSHManagerWidget(self.db, self.keys_dir)
             self.ui_widget.connect_requested.connect(self.connect_ssh)
-            self.ui_widget.scp_requested.connect(self.run_scp)
         return self.ui_widget
 
     def get_icon(self):
@@ -69,6 +77,63 @@ class SSHManagerPlugin(PluginBase):
         label.setAlignment(Qt.AlignCenter)
 
         return label
+
+    @staticmethod
+    def _quote_cmd_arg(value):
+        """Quote one argument for safe use inside a cmd.exe command string."""
+        result = ['"']
+        backslashes = 0
+        for char in str(value):
+            if char == "\\":
+                backslashes += 1
+                continue
+            if char == '"':
+                result.append("\\" * (backslashes * 2 + 1))
+                result.append(char)
+            else:
+                result.append("\\" * backslashes)
+                result.append(char)
+            backslashes = 0
+        result.append("\\" * (backslashes * 2))
+        result.append('"')
+        return "".join(result)
+
+    @classmethod
+    def _format_cmd(cls, args):
+        """Build a cmd.exe command from argv-style parts."""
+        if not args:
+            return ""
+
+        return " ".join(cls._format_cmd_arg(arg) for arg in args)
+
+    @classmethod
+    def _format_cmd_arg(cls, value):
+        """Quote only arguments that cmd.exe actually needs quoted."""
+        value = str(value)
+        if value == "":
+            return '""'
+
+        needs_quotes = any(char.isspace() for char in value)
+        needs_quotes = needs_quotes or any(char in '&|<>^"%!' for char in value)
+        return cls._quote_cmd_arg(value) if needs_quotes else value
+
+    @staticmethod
+    def _safe_cmd_title(value, fallback="SSH"):
+        title = str(value or fallback).strip()
+        for char in '&|<>^"%!':
+            title = title.replace(char, "")
+        return title or fallback
+
+    def _launch_cmd_window(self, title, command, exit_message):
+        """Launch a command in a new Windows cmd window and keep it open."""
+        full_command = (
+            f"title {self._safe_cmd_title(title)}"
+            f" & {command}"
+            f" & echo."
+            f" & echo {exit_message}"
+        )
+        creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+        subprocess.Popen(["cmd.exe", "/k", full_command], creationflags=creationflags)
 
     def connect_ssh(self, connection_id):
         """Launch SSH connection in a new terminal."""
@@ -95,20 +160,24 @@ class SSHManagerPlugin(PluginBase):
                 pem_path = str(full_pem_path)
 
         # Construct SSH command
-        ssh_cmd = f"ssh {user}@{host} -p {port}"
+        ssh_args = [
+            "ssh",
+            "-p",
+            str(port),
+            *self.SSH_KEEPALIVE_OPTIONS,
+        ]
         if pem_path and os.path.exists(pem_path):
-            ssh_cmd += f' -i "{pem_path}"'
-
-        # Use start to launch in a new cmd window
-        # cmd /k stays open, cmd /c closes after command (ssh itself will keep it open until exit)
-        # However, for SSH we usually want a separate shell.
-
-        # On Windows, we can use 'start ssh ...'
-        full_command = f'start "{name}" {ssh_cmd}'
+            ssh_args.extend(["-i", pem_path])
+        ssh_args.append(f"{user}@{host}")
+        ssh_cmd = self._format_cmd(ssh_args)
 
         try:
             logger.info(f"Connecting to {name}: {ssh_cmd}")
-            subprocess.Popen(full_command, shell=True)
+            self._launch_cmd_window(
+                name,
+                ssh_cmd,
+                "SSH session ended. This window is kept open so you can read the reason or reconnect.",
+            )
         except Exception as e:
             logger.error(f"Error launching SSH: {e}", exc_info=True)
 
@@ -135,28 +204,27 @@ class SSHManagerPlugin(PluginBase):
         remote_path = transfer_data["remote_path"]
         recursive = transfer_data["recursive"]
 
-        # Construct SCP command
-        # Windows scp: scp [-P port] [-i identity_file] [-r] source destination
-        recursive_flag = "-r" if recursive else ""
-        identity_flag = (
-            f' -i "{pem_path}"' if pem_path and os.path.exists(pem_path) else ""
-        )
-        port_flag = f" -P {port}"
-
         if mode == "upload":
-            source = f'"{local_path}"'
+            source = local_path
             destination = f"{user}@{host}:{remote_path}"
         else:
             source = f"{user}@{host}:{remote_path}"
-            destination = f'"{local_path}"'
+            destination = local_path
 
-        scp_cmd = (
-            f"scp{port_flag}{identity_flag} {recursive_flag} {source} {destination}"
-        )
-        full_command = f'start "SCP - {name}" cmd /k "{scp_cmd} && pause"'
+        scp_args = ["scp", "-P", str(port)]
+        if pem_path and os.path.exists(pem_path):
+            scp_args.extend(["-i", pem_path])
+        if recursive:
+            scp_args.append("-r")
+        scp_args.extend([source, destination])
+        scp_cmd = self._format_cmd(scp_args)
 
         try:
             logger.info(f"Executing SCP: {scp_cmd}")
-            subprocess.Popen(full_command, shell=True)
+            self._launch_cmd_window(
+                f"SCP - {name}",
+                scp_cmd,
+                "SCP command ended. This window is kept open so you can read the result.",
+            )
         except Exception as e:
             logger.error(f"Error launching SCP: {e}", exc_info=True)

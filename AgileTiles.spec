@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('plugins', 'plugins'), ('core', 'core'), ('ui', 'ui'), ('VERSION', '.')]
 binaries = []
-hiddenimports = ['base64', 'ctypes', 'mimetypes', 'random', 're', 'shutil', 'sqlite3', 'string', 'subprocess', 'tempfile', 'uuid']
+hiddenimports = ['base64', 'ctypes', 'mimetypes', 'paramiko', 'random', 're', 'shutil', 'sqlite3', 'string', 'subprocess', 'tempfile', 'uuid']
 tmp_ret = collect_all('qfluentwidgets')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
