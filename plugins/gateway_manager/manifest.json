@@ -1,0 +1,19 @@
+{
+    "id": "gateway_manager",
+    "name": "Gateway Manager",
+    "description": "Local async path gateway and reverse proxy manager",
+    "version": "1.0.0",
+    "author": "Codex",
+    "entry": "plugin.py",
+    "class": "GatewayManagerPlugin",
+    "permissions": [
+        "ui",
+        "db"
+    ],
+    "api_version": "1.0",
+    "dependencies": [
+        "aiohttp",
+        "sqlite3"
+    ],
+    "db_schema_version": 1
+}

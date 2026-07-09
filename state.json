@@ -30,7 +30,7 @@
             "disabled": [],
             "order": [
                 "bookmarks.card",
-                "frp_manager",
+                "gateway_manager",
                 "ssh_manager",
                 "app_launcher",
                 "toolbox"
@@ -39,7 +39,7 @@
         "shortcuts": {
             "toggle_sidebar": "alt+f1",
             "plugin.bookmarks.card": "",
-            "plugin.frp_manager": "",
+            "plugin.gateway_manager": "",
             "plugin.app_launcher": "",
             "plugin.ssh_manager": "",
             "toggle_sidebar_visibility": ""
