@@ -23,6 +23,8 @@ except ImportError:  # pragma: no cover - exercised only when dependency is miss
 
 
 CHUNK_SIZE = 64 * 1024
+MAX_UPSTREAM_CONNECTIONS = 100
+MAX_CONNECTIONS_PER_HOST = 20
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -258,7 +260,12 @@ class GatewayRuntime:
     async def _ensure_session(self):
         if self._session is None or self._session.closed:
             timeout = ClientTimeout(total=None, sock_connect=10, sock_read=None)
-            connector = TCPConnector(limit=0, ttl_dns_cache=300, enable_cleanup_closed=True)
+            connector = TCPConnector(
+                limit=MAX_UPSTREAM_CONNECTIONS,
+                limit_per_host=MAX_CONNECTIONS_PER_HOST,
+                ttl_dns_cache=300,
+                enable_cleanup_closed=True,
+            )
             self._session = ClientSession(
                 timeout=timeout,
                 connector=connector,

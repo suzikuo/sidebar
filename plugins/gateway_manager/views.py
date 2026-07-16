@@ -496,6 +496,9 @@ class GatewayManagerWidget(QWidget):
         super().__init__(parent)
         self.db = db
         self.plugin = plugin
+        self._gateway_cards_signature = None
+        self._tunnel_cards_signature = None
+        self._status_table_signature = None
 
         self.mainLayout = QVBoxLayout(self)
         self.mainLayout.setContentsMargins(14, 14, 14, 14)
@@ -713,10 +716,32 @@ class GatewayManagerWidget(QWidget):
         self.refresh_status()
 
     def refresh_tunnel_cards(self):
-        self.tunnelOverviewLayout.takeAllWidgets()
         tunnel_status = self.plugin.get_cloudflare_statuses()
         gateway_status = self.plugin.get_status()
-        for tunnel in self.db.list_cloudflare_tunnels():
+        tunnels = self.db.list_cloudflare_tunnels()
+        signature = tuple(
+            (
+                tunnel["id"],
+                tunnel["name"],
+                tunnel["enabled"],
+                tunnel["remarks"],
+                tunnel["gateway_id"],
+                tunnel["gateway_name"],
+                tunnel["listen_port"],
+                bool(tunnel_status.get(tunnel["id"], {}).get("running")),
+                tunnel_status.get(tunnel["id"], {}).get("last_error") or "",
+                bool(gateway_status.get(tunnel["gateway_id"], {}).get("running"))
+                if tunnel["gateway_id"]
+                else False,
+            )
+            for tunnel in tunnels
+        )
+        if signature == self._tunnel_cards_signature:
+            return
+
+        self._tunnel_cards_signature = signature
+        self.tunnelOverviewLayout.takeAllWidgets()
+        for tunnel in tunnels:
             gateway_id = tunnel["gateway_id"]
             gateway_running = bool(gateway_status.get(gateway_id, {}).get("running")) if gateway_id else False
             card = TunnelCard(
@@ -732,13 +757,31 @@ class GatewayManagerWidget(QWidget):
             self.tunnelOverviewLayout.addWidget(card)
 
     def refresh_gateway_cards(self):
-        self.overviewLayout.takeAllWidgets()
         status = self.plugin.get_status()
         route_counts = {}
         for route in self.db.list_routes():
             route_counts[route["gateway_id"]] = route_counts.get(route["gateway_id"], 0) + 1
 
         gateways = self.db.list_gateways()
+        signature = tuple(
+            (
+                gateway["id"],
+                gateway["name"],
+                gateway["listen_host"],
+                gateway["listen_port"],
+                gateway["enabled"],
+                gateway["remarks"],
+                route_counts.get(gateway["id"], 0),
+                bool(status.get(gateway["id"], {}).get("running")),
+                status.get(gateway["id"], {}).get("error") or "",
+            )
+            for gateway in gateways
+        )
+        if signature == self._gateway_cards_signature:
+            return
+
+        self._gateway_cards_signature = signature
+        self.overviewLayout.takeAllWidgets()
         for gateway in gateways:
             gateway_id = gateway["id"]
             card = GatewayCard(
@@ -809,6 +852,21 @@ class GatewayManagerWidget(QWidget):
 
     def refresh_status(self):
         status = self.plugin.get_status()
+        total_gateways = len(self.db.list_gateways())
+        signature = (
+            total_gateways,
+            tuple(
+                sorted(
+                    (gateway_id, tuple(sorted(item.items())))
+                    for gateway_id, item in status.items()
+                )
+            ),
+        )
+        if signature == self._status_table_signature:
+            self.refresh_cloudflare_status()
+            return
+        self._status_table_signature = signature
+
         self.statusTable.setRowCount(0)
         running = 0
         for row, item in enumerate(status.values()):
@@ -1155,6 +1213,8 @@ class GatewaySidebarWidget(QWidget):
         self._update_display()
 
     def set_count(self, count: int):
+        if self._count == count:
+            return
         self._count = count
         self._update_display()
 

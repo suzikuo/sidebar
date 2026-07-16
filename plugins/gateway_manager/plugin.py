@@ -29,6 +29,7 @@ class GatewayManagerPlugin(PluginBase):
         self.cloudflare_processes = {}
         self.cloudflare_last_errors = {}
         self.cloudflare_last_exit_codes = {}
+        self._last_sidebar_status = None
 
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self._on_status_timer)
@@ -47,6 +48,8 @@ class GatewayManagerPlugin(PluginBase):
     def on_unload(self):
         logger.info("Gateway Manager unloading...")
         self.status_timer.stop()
+        self.status_timer.timeout.disconnect(self._on_status_timer)
+        self.status_timer.deleteLater()
         self.stop_all_cloudflare_tunnels()
         self.runtime.stop()
         self.db.close()
@@ -83,7 +86,7 @@ class GatewayManagerPlugin(PluginBase):
         self._active_gateway_ids.clear()
         self.runtime.stop()
         self._update_sidebar_status()
-        if self.ui_widget:
+        if self.ui_widget and self.ui_widget.isVisible():
             self.ui_widget.refresh_status()
         return True
 
@@ -249,9 +252,13 @@ class GatewayManagerPlugin(PluginBase):
     def _update_sidebar_status(self):
         count = self.runtime.running_count()
         if self.sidebar_widget:
-            self.sidebar_widget.set_count(count)
             show_setting = self.context.state.get("show_gateway_sidebar_status", True)
-            self.sidebar_widget.setVisible(show_setting and count > 0)
+            status = (count, bool(show_setting and count > 0))
+            if status == self._last_sidebar_status:
+                return
+            self._last_sidebar_status = status
+            self.sidebar_widget.set_count(count)
+            self.sidebar_widget.setVisible(status[1])
 
     def _check_cloudflare_process(self):
         for tunnel_id, process in list(self.cloudflare_processes.items()):

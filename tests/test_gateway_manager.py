@@ -4,6 +4,8 @@ import unittest
 
 from plugins.gateway_manager.gateway import (
     GatewayRuntime,
+    MAX_CONNECTIONS_PER_HOST,
+    MAX_UPSTREAM_CONNECTIONS,
     RouteConfig,
     build_upstream_url,
     find_route,
@@ -21,6 +23,11 @@ def get_free_port():
 
 
 class RouteMatchingTest(unittest.TestCase):
+    def test_upstream_connection_limits_are_bounded(self):
+        self.assertGreater(MAX_UPSTREAM_CONNECTIONS, 0)
+        self.assertGreater(MAX_CONNECTIONS_PER_HOST, 0)
+        self.assertLessEqual(MAX_CONNECTIONS_PER_HOST, MAX_UPSTREAM_CONNECTIONS)
+
     def test_prefix_strip_preserves_remainder(self):
         self.assertTrue(route_matches("/6694/api/user", "/6694"))
         self.assertEqual(strip_path_prefix("/6694/api/user", "/6694"), "/api/user")
@@ -91,6 +98,11 @@ class GatewayIntegrationTest(AsyncBaseCase):
             ]
         )
         self.assertTrue(started)
+        self.assertEqual(self.runtime._session.connector.limit, MAX_UPSTREAM_CONNECTIONS)
+        self.assertEqual(
+            self.runtime._session.connector.limit_per_host,
+            MAX_CONNECTIONS_PER_HOST,
+        )
 
     async def asyncTearDown(self):
         self.runtime.stop()

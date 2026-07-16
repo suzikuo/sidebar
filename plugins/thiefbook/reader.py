@@ -1,5 +1,6 @@
 import os
 import random
+from array import array
 
 
 class ThiefBookReader:
@@ -10,14 +11,13 @@ class ThiefBookReader:
         self.is_english = False
         self.line_break = " "
         self._content = ""
-        self._pages = []
-        self._page_start_indices = []
+        self._page_ranges = array("Q")
         self._exact_char_idx = 0
         self._is_boss_key_active = False
 
     def _update_exact_char(self):
-        if hasattr(self, "_page_start_indices") and 1 <= self.current_page <= len(self._page_start_indices):
-            self._exact_char_idx = self._page_start_indices[self.current_page - 1]
+        if 1 <= self.current_page <= self._page_count:
+            self._exact_char_idx = self._page_ranges[(self.current_page - 1) * 2]
         else:
             self._exact_char_idx = 0
         self._boss_key_texts = [
@@ -60,7 +60,8 @@ class ThiefBookReader:
             target_char_idx = getattr(self, "_exact_char_idx", 0)
             self.load_file()
             new_page = 1
-            for i, start_idx in enumerate(self._page_start_indices):
+            for i in range(self._page_count):
+                start_idx = self._page_ranges[i * 2]
                 if start_idx <= target_char_idx:
                     new_page = i + 1
                 else:
@@ -77,7 +78,7 @@ class ThiefBookReader:
     def load_file(self):
         """Read the TXT file into memory and paginate it."""
         self._content = ""
-        self._pages = []
+        self._page_ranges = array("Q")
         if not self.txt_path or not os.path.exists(self.txt_path):
             return
 
@@ -97,9 +98,8 @@ class ThiefBookReader:
         self._paginate()
 
     def _paginate(self):
-        """Split content into pages based on page_length."""
-        self._pages = []
-        self._page_start_indices = []
+        """Index page ranges without duplicating the underlying book text."""
+        self._page_ranges = array("Q")
         if not self._content:
             return
 
@@ -114,36 +114,44 @@ class ThiefBookReader:
                 # Find the next space after idx + page_length
                 end_idx = idx + self.page_length
                 if end_idx >= total_len:
-                    self._page_start_indices.append(idx)
-                    self._pages.append(
-                        self._content[idx:].replace("\n", self.line_break)
-                    )
+                    self._append_page_range(idx, total_len)
                     break
 
                 # Try to not break a word
                 while end_idx < total_len and not self._content[end_idx].isspace():
                     end_idx += 1
 
-                chunk = self._content[idx:end_idx].strip()
-                if chunk:
-                    self._page_start_indices.append(idx)
-                    self._pages.append(chunk.replace("\n", self.line_break))
+                self._append_page_range(idx, end_idx)
                 idx = end_idx + 1
             else:
-                chunk = self._content[idx : idx + self.page_length].strip()
-                if chunk:
-                    self._page_start_indices.append(idx)
-                    self._pages.append(chunk.replace("\n", self.line_break))
+                self._append_page_range(idx, min(idx + self.page_length, total_len))
                 idx += self.page_length
 
+    def _append_page_range(self, start: int, end: int):
+        while start < end and self._content[start].isspace():
+            start += 1
+        while end > start and self._content[end - 1].isspace():
+            end -= 1
+        if start < end:
+            self._page_ranges.extend((start, end))
+
+    @property
+    def _page_count(self) -> int:
+        return len(self._page_ranges) // 2
+
+    def _page_text(self, index: int) -> str:
+        start = self._page_ranges[index * 2]
+        end = self._page_ranges[index * 2 + 1]
+        return self._content[start:end].replace("\n", self.line_break)
+
     def _ensure_page_bounds(self):
-        if not self._pages:
+        if not self._page_count:
             self.current_page = 1
         else:
             if self.current_page < 1:
                 self.current_page = 1
-            if self.current_page > len(self._pages):
-                self.current_page = len(self._pages)
+            if self.current_page > self._page_count:
+                self.current_page = self._page_count
 
     def get_current_text(self) -> str:
         """Returns the text for the current page, or Boss Key text, or an error/prompt."""
@@ -154,11 +162,11 @@ class ThiefBookReader:
             return "无歌词"
         if not os.path.exists(self.txt_path):
             return "歌词不存在,请检查路径"
-        if not self._pages:
+        if not self._page_count:
             return "歌词为空或读取失败"
 
-        if 1 <= self.current_page <= len(self._pages):
-            return self._pages[self.current_page - 1]
+        if 1 <= self.current_page <= self._page_count:
+            return self._page_text(self.current_page - 1)
         return "没有更多内容了"
 
     def next_page(self) -> bool:
@@ -167,7 +175,7 @@ class ThiefBookReader:
             self._is_boss_key_active = False
             return True
 
-        if self._pages and self.current_page < len(self._pages):
+        if self._page_count and self.current_page < self._page_count:
             self.current_page += 1
             self._update_exact_char()
             return True
@@ -179,7 +187,7 @@ class ThiefBookReader:
             self._is_boss_key_active = False
             return True
 
-        if self._pages and self.current_page > 1:
+        if self._page_count and self.current_page > 1:
             self.current_page -= 1
             self._update_exact_char()
             return True
@@ -209,7 +217,7 @@ class ThiefBookReader:
         If found, sets current_page to that page and returns True.
         If not found, returns False.
         """
-        if not self._pages or not keyword:
+        if not self._page_count or not keyword:
             return False
 
         if self._is_boss_key_active:
@@ -218,15 +226,15 @@ class ThiefBookReader:
         start_idx = self.current_page  # current_page is 1-indexed, so this is the index of the next page
 
         # Search from next page to end
-        for i in range(start_idx, len(self._pages)):
-            if keyword in self._pages[i]:
+        for i in range(start_idx, self._page_count):
+            if keyword in self._page_text(i):
                 self.current_page = i + 1
                 self._update_exact_char()
                 return True
 
         # Wrap around from beginning to current page
         for i in range(0, start_idx):
-            if keyword in self._pages[i]:
+            if keyword in self._page_text(i):
                 self.current_page = i + 1
                 self._update_exact_char()
                 return True
