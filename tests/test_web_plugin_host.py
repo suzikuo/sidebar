@@ -117,6 +117,18 @@ class WebPluginHostIntegrationTest(unittest.TestCase):
         self.assertEqual(responses[0][1]["data"]["message"], "ready")
         self.assertEqual(responses[0][1]["data"]["caller"], "web:settings")
 
+    def test_dispose_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "index.html").write_text("<html></html>", encoding="utf-8")
+            host = WebPluginHost(ApiRegistry(), "settings", root, autoload=False)
+
+            host.dispose()
+            host.dispose()
+            self.app.processEvents()
+
+        self.assertTrue(host._disposed)
+
     def test_settings_interface_falls_back_when_build_is_missing(self):
         class SettingsManagerStub:
             def __init__(self):

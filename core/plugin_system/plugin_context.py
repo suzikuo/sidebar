@@ -97,6 +97,14 @@ class PluginContext:
 
     # -- Service API Access --
 
+    @property
+    def api_registry(self):
+        """Host API registry for trusted local UI hosts owned by this plugin."""
+        self._ensure_open()
+        if self._api_registry is None:
+            raise RuntimeError("The application API registry is not available.")
+        return self._api_registry
+
     def register_api_route(
         self,
         action: str,

@@ -83,6 +83,7 @@ class WebPluginHost(QWidget):
     ):
         super().__init__(parent)
         self.content_root, self.entry_path = resolve_web_entry(content_root, entry)
+        self._disposed = False
 
         self.profile = QWebEngineProfile(self)
         self.profile.setHttpCacheType(
@@ -121,6 +122,8 @@ class WebPluginHost(QWidget):
             self.load()
 
     def load(self):
+        if self._disposed:
+            raise RuntimeError("Web plugin host has been disposed.")
         self.view.setUrl(QUrl.fromLocalFile(str(self.entry_path)))
 
     @staticmethod
@@ -134,13 +137,31 @@ class WebPluginHost(QWidget):
         settings.setAttribute(attributes.PluginsEnabled, False)
 
     def _on_load_finished(self, succeeded: bool):
+        if self._disposed:
+            return
         if succeeded:
             self.load_succeeded.emit()
         else:
             self.load_failed.emit("The local web interface could not be loaded.")
 
-    def closeEvent(self, event):
+    def dispose(self):
+        """Release this host's isolated WebEngine resources exactly once."""
+        if self._disposed:
+            return
+        self._disposed = True
+
+        self.view.loadFinished.disconnect(self._on_load_finished)
+        self.view.stop()
         self.channel.deregisterObject(self.bridge)
+        self.page.setWebChannel(None)
         self.view.setPage(None)
+
+        self.channel.deleteLater()
+        self.bridge.deleteLater()
         self.page.deleteLater()
+        self.profile.deleteLater()
+        self.view.deleteLater()
+
+    def closeEvent(self, event):
+        self.dispose()
         super().closeEvent(event)

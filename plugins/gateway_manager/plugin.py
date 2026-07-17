@@ -1,16 +1,18 @@
 import os
+import sqlite3
 import subprocess
 from pathlib import Path
 
+from core.api_gateway import ApiError
 from core.logger import logger
 from core.plugin_system.plugin_base import PluginBase
 from plugins.gateway_manager.gateway import GatewayRuntime
-from plugins.gateway_manager.models import GatewayDatabase
+from plugins.gateway_manager.models import GatewayDatabase, validate_target_url
+from plugins.gateway_manager.web_view import GatewayInterface
 from plugins.gateway_manager.views import GatewayManagerWidget, GatewaySidebarWidget
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import BodyLabel, FluentIcon
-
 
 class GatewayManagerPlugin(PluginBase):
     def __init__(self, context):
@@ -18,6 +20,7 @@ class GatewayManagerPlugin(PluginBase):
         self.description = "Manage local async path gateways"
         self.ui_widget = None
         self.sidebar_widget = None
+        self.web_widget = None
 
         self.data_dir = Path(self.context.get_data_dir())
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -37,6 +40,7 @@ class GatewayManagerPlugin(PluginBase):
 
     def on_load(self):
         logger.info("Gateway Manager loading...")
+        self._register_web_api()
         auto_config = self.db.get_runtime_config(auto_only=True)
         if auto_config:
             self._active_gateway_ids = {item["id"] for item in auto_config}
@@ -50,11 +54,25 @@ class GatewayManagerPlugin(PluginBase):
         self.status_timer.stop()
         self.status_timer.timeout.disconnect(self._on_status_timer)
         self.status_timer.deleteLater()
+        if self.web_widget:
+            self.web_widget.dispose()
+            self.web_widget.deleteLater()
+            self.web_widget = None
+            self.ui_widget = None
         self.stop_all_cloudflare_tunnels()
         self.runtime.stop()
         self.db.close()
 
     def get_card_widget(self) -> QWidget:
+        if self.web_widget is None:
+            self.web_widget = GatewayInterface(
+                self.context.api_registry,
+                Path(__file__).with_name("web"),
+                self._get_native_widget,
+            )
+        return self.web_widget
+
+    def _get_native_widget(self):
         if self.ui_widget is None:
             self.ui_widget = GatewayManagerWidget(self.db, self)
         return self.ui_widget
@@ -134,6 +152,207 @@ class GatewayManagerPlugin(PluginBase):
 
     def get_logs(self):
         return self.runtime.get_logs()
+
+    def _register_web_api(self):
+        self.context.register_api_route("snapshot", self._web_snapshot)
+        self.context.register_api_route("action", self._web_action)
+        self.context.register_api_route("save", self._web_save)
+        self.context.register_api_route("delete", self._web_delete)
+
+    def _web_snapshot(self, payload, request_context):
+        del payload, request_context
+        gateway_status = self.get_status()
+        gateways = []
+        for row in self.db.list_gateways():
+            gateway = dict(row)
+            status = gateway_status.get(gateway["id"], {})
+            gateways.append(
+                {
+                    "id": gateway["id"],
+                    "name": gateway["name"],
+                    "listen_host": gateway["listen_host"],
+                    "listen_port": int(gateway["listen_port"]),
+                    "enabled": bool(gateway["enabled"]),
+                    "auto_start": bool(gateway["auto_start"]),
+                    "remarks": gateway["remarks"] or "",
+                    "running": bool(status.get("running")),
+                    "error": status.get("error") or "",
+                    "routes_count": int(status.get("routes") or 0),
+                    "requests_total": int(status.get("requests_total") or 0),
+                    "last_request_at": float(status.get("last_request_at") or 0),
+                }
+            )
+
+        tunnels = []
+        tunnel_statuses = self.get_cloudflare_statuses()
+        for row in self.db.list_cloudflare_tunnels():
+            tunnel = dict(row)
+            status = tunnel_statuses.get(tunnel["id"], {})
+            tunnels.append(
+                {
+                    "id": tunnel["id"],
+                    "name": tunnel["name"],
+                    "cloudflared_path": tunnel["cloudflared_path"] or "cloudflared",
+                    "gateway_id": tunnel["gateway_id"],
+                    "gateway_name": tunnel["gateway_name"] or "",
+                    "enabled": bool(tunnel["enabled"]),
+                    "auto_start": bool(tunnel["auto_start"]),
+                    "remarks": tunnel["remarks"] or "",
+                    "has_token": bool(tunnel["token"]),
+                    "running": bool(status.get("running")),
+                    "pid": status.get("pid"),
+                    "last_error": status.get("last_error") or "",
+                    "last_exit_code": status.get("last_exit_code"),
+                }
+            )
+
+        services = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "target_url": row["target_url"],
+                "enabled": bool(row["enabled"]),
+                "remarks": row["remarks"] or "",
+            }
+            for row in self.db.list_services()
+        ]
+        routes = [
+            {
+                "id": row["id"],
+                "gateway_id": row["gateway_id"],
+                "gateway_name": row["gateway_name"],
+                "service_id": row["service_id"],
+                "service_name": row["service_name"],
+                "target_url": row["target_url"],
+                "path_prefix": row["path_prefix"],
+                "preserve_host": bool(row["preserve_host"]),
+                "enabled": bool(row["enabled"]),
+            }
+            for row in self.db.list_routes()
+        ]
+        return {
+            "running_count": self.running_count(),
+            "total_gateways": len(gateways),
+            "gateways": gateways,
+            "tunnels": tunnels,
+            "services": services,
+            "routes": routes,
+            "logs": self.get_logs(),
+        }
+
+    def _web_action(self, payload, request_context):
+        del request_context
+        action = str(payload.get("action") or "")
+        item_id = self._optional_item_id(payload.get("id"))
+        if action == "start_all":
+            succeeded = self.start_all()
+        elif action == "stop_all":
+            succeeded = self.stop_all()
+        elif action == "start_all_tunnels":
+            succeeded = self.start_all_cloudflare_tunnels()
+        elif action == "stop_all_tunnels":
+            succeeded = self.stop_all_cloudflare_tunnels()
+        elif action == "start_gateway":
+            succeeded = self.start_gateway(self._required_item_id(item_id))
+        elif action == "stop_gateway":
+            succeeded = self.stop_gateway(self._required_item_id(item_id))
+        elif action == "start_tunnel":
+            succeeded = self.start_cloudflare_tunnel(self._required_item_id(item_id))
+        elif action == "stop_tunnel":
+            succeeded = self.stop_cloudflare_tunnel(self._required_item_id(item_id))
+        else:
+            raise ApiError("INVALID_REQUEST", "不支持的网关操作。")
+        self._update_sidebar_status()
+        if not succeeded:
+            raise ApiError("ACTION_FAILED", "网关操作未成功，请查看状态信息。")
+        return self._web_snapshot({}, None)
+
+    def _web_save(self, payload, request_context):
+        del request_context
+        resource = str(payload.get("resource") or "")
+        data = payload.get("data")
+        item_id = self._optional_item_id(payload.get("id"))
+        if not isinstance(data, dict):
+            raise ApiError("INVALID_REQUEST", "保存内容必须是对象。")
+
+        try:
+            if resource == "service":
+                if not validate_target_url(data.get("target_url")):
+                    raise ValueError("服务目标地址必须是有效的 HTTP 或 HTTPS 地址。")
+                self.db.save_service(data, item_id)
+                self.reload_runtime()
+            elif resource == "gateway":
+                self.db.save_gateway(data, item_id)
+                self.reload_runtime()
+            elif resource == "route":
+                self.db.save_route(data, item_id)
+                self.reload_runtime()
+            elif resource == "tunnel":
+                was_running = bool(item_id and self.is_cloudflare_running(item_id))
+                existing = self.db.get_cloudflare_tunnel(item_id) if item_id else None
+                if item_id and not existing:
+                    raise ApiError("NOT_FOUND", "Cloudflare Tunnel 不存在。")
+                if not str(data.get("name") or "").strip():
+                    raise ValueError("Tunnel 名称不能为空。")
+                data = dict(data)
+                data["gateway_id"] = self._optional_item_id(data.get("gateway_id"))
+                data["token"] = str(data.get("token") or "").strip() or (existing or {}).get("token", "")
+                if not data["token"]:
+                    raise ValueError("新 Tunnel 必须填写 token。")
+                self.db.save_cloudflare_tunnel(data, item_id)
+                if was_running:
+                    self.stop_cloudflare_tunnel(item_id)
+                    self.start_cloudflare_tunnel(item_id)
+            else:
+                raise ApiError("INVALID_REQUEST", "不支持的配置类型。")
+        except (TypeError, ValueError, sqlite3.Error) as exc:
+            raise ApiError("INVALID_REQUEST", str(exc)) from exc
+        return self._web_snapshot({}, None)
+
+    def _web_delete(self, payload, request_context):
+        del request_context
+        resource = str(payload.get("resource") or "")
+        item_id = self._required_item_id(self._optional_item_id(payload.get("id")))
+        try:
+            if resource == "service":
+                deleted = self.db.delete_service(item_id)
+                self.reload_runtime()
+            elif resource == "gateway":
+                self.stop_gateway(item_id)
+                deleted = self.db.delete_gateway(item_id)
+                self.reload_runtime()
+            elif resource == "route":
+                deleted = self.db.delete_route(item_id)
+                self.reload_runtime()
+            elif resource == "tunnel":
+                self.stop_cloudflare_tunnel(item_id)
+                deleted = self.db.delete_cloudflare_tunnel(item_id)
+                deleted = True if deleted is None else deleted
+            else:
+                raise ApiError("INVALID_REQUEST", "不支持的配置类型。")
+        except sqlite3.Error as exc:
+            raise ApiError("INVALID_REQUEST", str(exc)) from exc
+        if not deleted:
+            raise ApiError("NOT_FOUND", "要删除的配置不存在。")
+        return self._web_snapshot({}, None)
+
+    @staticmethod
+    def _optional_item_id(value):
+        if value in (None, ""):
+            return None
+        try:
+            item_id = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ApiError("INVALID_REQUEST", "配置 ID 无效。") from exc
+        if item_id <= 0:
+            raise ApiError("INVALID_REQUEST", "配置 ID 无效。")
+        return item_id
+
+    @staticmethod
+    def _required_item_id(item_id):
+        if item_id is None:
+            raise ApiError("INVALID_REQUEST", "该操作需要配置 ID。")
+        return item_id
 
     def running_count(self):
         return self.runtime.running_count()

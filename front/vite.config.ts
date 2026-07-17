@@ -1,13 +1,14 @@
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { fileURLToPath, URL } from 'node:url'
 
-const buildTargets = new Set(['desktop', 'web'])
+const buildTargets = new Set(['desktop', 'gateway', 'web'])
 
 function desktopFileProtocolPlugin(target: string): Plugin {
   return {
     name: 'desktop-file-protocol-html',
     transformIndexHtml(html) {
-      if (target !== 'desktop') return html
+      if (target === 'web') return html
       return html
         .replace(
           /<script type="module" crossorigin src="([^"]+)"><\/script>/g,
@@ -36,12 +37,16 @@ function localDevCspPlugin(command: string): Plugin {
 
 export default defineConfig(({ command, mode }) => {
   const target = buildTargets.has(mode) ? mode : 'desktop'
+  const gatewayBuild = target === 'gateway'
 
   return {
+    root: gatewayBuild ? fileURLToPath(new URL('./gateway', import.meta.url)) : undefined,
     plugins: [vue(), desktopFileProtocolPlugin(target), localDevCspPlugin(command)],
     base: './',
     build: {
-      outDir: `dist/${target}`,
+      outDir: gatewayBuild
+        ? fileURLToPath(new URL('../plugins/gateway_manager/web', import.meta.url))
+        : `dist/${target}`,
       emptyOutDir: true,
       target: 'es2020',
       cssTarget: 'chrome90',

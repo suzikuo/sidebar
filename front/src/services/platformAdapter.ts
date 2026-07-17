@@ -7,4 +7,4 @@ export interface PlatformAdapter {
 }
 
 export const platformAdapter: PlatformAdapter =
-  import.meta.env.MODE === 'desktop' ? qtWebChannelAdapter : browserPreviewAdapter
+  ['desktop', 'gateway'].includes(import.meta.env.MODE) ? qtWebChannelAdapter : browserPreviewAdapter

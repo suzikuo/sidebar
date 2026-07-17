@@ -95,6 +95,10 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
             captured["hiddenimports"],
         )
         self.assertIn("core.security", captured["hiddenimports"])
+        self.assertIn("core.web_ui.factory", captured["hiddenimports"])
+        self.assertIn("PySide6.QtWebChannel", captured["hiddenimports"])
+        self.assertIn("PySide6.QtWebEngineCore", captured["hiddenimports"])
+        self.assertIn("PySide6.QtWebEngineWidgets", captured["hiddenimports"])
         self.assertIn(("plugins/sample.py", "plugins"), captured["datas"])
         self.assertIn(("ui/widget.py", "ui"), captured["datas"])
         self.assertIn(("VERSION", "."), captured["datas"])
