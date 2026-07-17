@@ -9,7 +9,7 @@ from core.plugin_system.plugin_base import PluginBase
 from plugins.gateway_manager.gateway import GatewayRuntime
 from plugins.gateway_manager.models import GatewayDatabase, validate_target_url
 from plugins.gateway_manager.web_view import GatewayInterface
-from plugins.gateway_manager.views import GatewayManagerWidget, GatewaySidebarWidget
+from plugins.gateway_manager.views import GatewayManagerWidget
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QWidget
 from qfluentwidgets import BodyLabel, FluentIcon
@@ -19,7 +19,6 @@ class GatewayManagerPlugin(PluginBase):
         super().__init__(context)
         self.description = "Manage local async path gateways"
         self.ui_widget = None
-        self.sidebar_widget = None
         self.web_widget = None
 
         self.data_dir = Path(self.context.get_data_dir())
@@ -32,7 +31,6 @@ class GatewayManagerPlugin(PluginBase):
         self.cloudflare_processes = {}
         self.cloudflare_last_errors = {}
         self.cloudflare_last_exit_codes = {}
-        self._last_sidebar_status = None
 
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self._on_status_timer)
@@ -77,22 +75,6 @@ class GatewayManagerPlugin(PluginBase):
             self.ui_widget = GatewayManagerWidget(self.db, self)
         return self.ui_widget
 
-    def get_sidebar_widget(self) -> QWidget:
-        if self.sidebar_widget is None:
-            self.sidebar_widget = GatewaySidebarWidget()
-            self._update_sidebar_status()
-        return self.sidebar_widget
-
-    def get_sidebar_widget_config(self) -> dict:
-        # Reserve exactly one navigation cell.  The widget is intentionally
-        # icon-only so a narrow or short sidebar never needs to reflow text.
-        return {
-            "min_height": 40,
-            "max_height": 40,
-            "min_width": 40,
-            "max_width": 40,
-        }
-
     def get_icon(self):
         return FluentIcon.IOT
 
@@ -110,7 +92,6 @@ class GatewayManagerPlugin(PluginBase):
     def stop_all(self):
         self._active_gateway_ids.clear()
         self.runtime.stop()
-        self._update_sidebar_status()
         if self.ui_widget and self.ui_widget.isVisible():
             self.ui_widget.refresh_status()
         return True
@@ -121,7 +102,6 @@ class GatewayManagerPlugin(PluginBase):
             return False
         self._active_gateway_ids.add(gateway_id)
         result = self.runtime.start(config)
-        self._update_sidebar_status()
         if self.ui_widget:
             self.ui_widget.refresh_status()
         return result
@@ -129,20 +109,17 @@ class GatewayManagerPlugin(PluginBase):
     def stop_gateway(self, gateway_id):
         self._active_gateway_ids.discard(gateway_id)
         result = self.runtime.stop_gateway(gateway_id)
-        self._update_sidebar_status()
         if self.ui_widget:
             self.ui_widget.refresh_status()
         return result
 
     def reload_runtime(self):
         if not self._active_gateway_ids:
-            self._update_sidebar_status()
             if self.ui_widget:
                 self.ui_widget.refresh_status()
             return True
 
         result = self.runtime.start(self._active_runtime_config())
-        self._update_sidebar_status()
         if self.ui_widget:
             self.ui_widget.refresh_status()
         return result
@@ -262,7 +239,6 @@ class GatewayManagerPlugin(PluginBase):
             succeeded = self.stop_cloudflare_tunnel(self._required_item_id(item_id))
         else:
             raise ApiError("INVALID_REQUEST", "不支持的网关操作。")
-        self._update_sidebar_status()
         if not succeeded:
             raise ApiError("ACTION_FAILED", "网关操作未成功，请查看状态信息。")
         return self._web_snapshot({}, None)
@@ -471,20 +447,8 @@ class GatewayManagerPlugin(PluginBase):
 
     def _on_status_timer(self):
         self._check_cloudflare_process()
-        self._update_sidebar_status()
         if self.ui_widget:
             self.ui_widget.refresh_status()
-
-    def _update_sidebar_status(self):
-        count = self.runtime.running_count()
-        if self.sidebar_widget:
-            show_setting = self.context.state.get("show_gateway_sidebar_status", True)
-            status = (count, bool(show_setting and count > 0))
-            if status == self._last_sidebar_status:
-                return
-            self._last_sidebar_status = status
-            self.sidebar_widget.set_count(count)
-            self.sidebar_widget.setVisible(status[1])
 
     def _check_cloudflare_process(self):
         for tunnel_id, process in list(self.cloudflare_processes.items()):
