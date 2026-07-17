@@ -1,0 +1,3 @@
+-r requirements-build.txt
+
+# The current test suite uses the Python standard-library unittest runner.

@@ -16,6 +16,7 @@ from qfluentwidgets import (
     SettingCardGroup,
     SwitchSettingCard,
     TitleLabel,
+    ToolButton,
 )
 
 from core.data_layer.path_utils import PathManager
@@ -267,22 +268,6 @@ class FluentSettingsCard(QWidget):
         self.reset_pos_card.clicked.connect(self._reset_sidebar_position)
         appearance_group.addSettingCard(self.reset_pos_card)
 
-        # Max Plugins Displayed
-        self._add_slider_card(
-            group=appearance_group,
-            icon=FluentIcon.TILES,
-            title="显示插件数量限制",
-            content="侧边栏最多显示的插件数量（0表示不限制）",
-            min_val=0,
-            max_val=20,
-            value=self.settings_manager.get_setting(
-                "appearance", "max_plugins_count", 0
-            ),
-            callback=lambda val: self.settings_manager.set_setting(
-                "appearance", "max_plugins_count", val
-            ),
-        )
-
         content_layout.addWidget(appearance_group)
 
         # === Storage Settings Group ===
@@ -301,7 +286,6 @@ class FluentSettingsCard(QWidget):
         content_layout.addWidget(storage_group)
 
         # === Plugins Group ===
-        self.plugin_group_layout = content_layout  # Store for refreshing
         self._add_plugin_group(content_layout)
 
         # === About Section ===
@@ -629,52 +613,27 @@ class FluentSettingsCard(QWidget):
 
     def _on_install_plugin(self):
         """Handle plugin installation."""
-        from qfluentwidgets import InfoBar, InfoBarPosition
-
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择插件文件", "", "Plugin Files (*.pyd *.zip)"
+            self,
+            "选择插件包",
+            "",
+            "Agile Tiles Plugin (*.atplugin)",
         )
 
         if not file_path:
             return
 
-        manager = self.settings_manager.plugin_manager
-        success, message = manager.install_plugin(file_path)
-
-        if success:
-            InfoBar.success(
-                title="安装成功",
-                content=message,
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self.window(),
-            )
-            # Refresh the group UI
-            self._add_plugin_group(self.plugin_group_layout)
-        else:
-            InfoBar.error(
-                title="安装失败",
-                content=message,
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-                parent=self.window(),
-            )
+        success, message = self.settings_manager.plugin_manager.install_plugin(file_path)
+        self._show_plugin_result(success, message)
+        self._refresh_plugin_group()
 
     def _add_plugin_group(self, layout):
         """Add plugin management section."""
-        if not self.settings_manager.plugin_manager:
+        manager = self.settings_manager.plugin_manager
+        if not manager:
             return
 
         # === Shortcuts Group ===
-        # Check if group already exists (for refresh)
-        if hasattr(self, "shortcut_group"):
-            self.shortcut_group.deleteLater()
-            self.plugin_group.deleteLater()
-
         self.shortcut_group = SettingCardGroup("快捷键", self)
 
         # Global: Toggle Sidebar
@@ -688,107 +647,211 @@ class FluentSettingsCard(QWidget):
             "alt+space",
         )
 
+        statuses = manager.get_plugin_statuses()
+        for status in statuses:
+            if status.selected_version is None:
+                continue
+            self._add_shortcut_card(
+                self.shortcut_group,
+                f"plugin_{status.plugin_id}",
+                FluentIcon.APPLICATION,
+                f"{status.name} 快捷键",
+                f"快速打开 {status.name}",
+                f"plugin.{status.plugin_id}",
+                None,
+            )
+
         layout.addWidget(self.shortcut_group)
 
-        # === Plugins Group ===
-        self.plugin_group = SettingCardGroup("插件管理", self)
+        self.plugin_group_host = QWidget(self)
+        self.plugin_group_host_layout = QVBoxLayout(self.plugin_group_host)
+        self.plugin_group_host_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.plugin_group_host)
+        self._refresh_plugin_group(statuses)
 
-        # Add Plugin Button
+    def _refresh_plugin_group(self, statuses=None):
+        """Refresh only the plugin management group."""
+        if not hasattr(self, "plugin_group_host_layout"):
+            return
+        if hasattr(self, "plugin_group"):
+            self.plugin_group_host_layout.removeWidget(self.plugin_group)
+            self.plugin_group.deleteLater()
+
+        manager = self.settings_manager.plugin_manager
+        statuses = manager.get_plugin_statuses() if statuses is None else statuses
+        order = manager.get_plugin_order()
+        order_index = {plugin_id: index for index, plugin_id in enumerate(order)}
+        self.plugin_group = SettingCardGroup("插件管理", self.plugin_group_host)
+        self.plugin_cards = {}
+        self.plugin_action_buttons = {}
+
         self.install_plugin_card = PushSettingCard(
             "选择文件",
             FluentIcon.ADD,
             "添加插件",
-            "从 .pyd 或 .zip 文件直接添加插件到系统",
+            "导入 .atplugin 包；验证后将在下次启动时安装或更新",
             parent=self.plugin_group,
         )
         self.install_plugin_card.clicked.connect(self._on_install_plugin)
         self.plugin_group.addSettingCard(self.install_plugin_card)
 
-        manifests = self.settings_manager.plugin_manager.get_all_manifests()
-
-        # Use stored order
-        ordered_ids = self.settings_manager.plugin_manager.get_plugin_order()
-
-        for index, pid in enumerate(ordered_ids):
-            if pid not in manifests:
-                continue
-
-            manifest = manifests[pid]
-            # Use name from manifest, default to capitalized ID
-            default_name = pid.split(".")[-1].replace("_", " ").title()
-            name = manifest.get("name", default_name)
-            description = manifest.get("description", "No description available")
-
-            # 1. Enable/Disable Toggle
+        for status in statuses:
+            pid = status.plugin_id
+            content, details = self._plugin_status_text(status)
             card = SwitchSettingCard(
-                FluentIcon.TILES, name, description, parent=self.plugin_group
+                FluentIcon.TILES, status.name, content, parent=self.plugin_group
             )
-
-            # Add Up/Down buttons
-            from qfluentwidgets import ToolButton
-
-            # Up Button
-            btn_up = ToolButton(FluentIcon.UP, card)
-            btn_up.setFixedSize(30, 30)
-            btn_up.setToolTip("上移")
-            btn_up.clicked.connect(lambda _, p=pid: self._move_plugin(p, -1))
-            if index == 0:
-                btn_up.setEnabled(False)
-
-            # Down Button
-            btn_down = ToolButton(FluentIcon.DOWN, card)
-            btn_down.setFixedSize(30, 30)
-            btn_down.setToolTip("下移")
-            btn_down.clicked.connect(lambda _, p=pid: self._move_plugin(p, 1))
-            if index == len(ordered_ids) - 1:
-                btn_down.setEnabled(False)
-
-            # Insert buttons before the switch (which is usually at the end)
-            # SwitchSettingCard layout: icon, labels, space, switch
-            # We want: icon, labels, space, UP, DOWN, switch
-
-            # Access the internal layout
-            # Usually hBoxLayout.
-            # Let's try adding them. They will be added to the end.
-            # To insert before switch, we need to know where switch is.
-            # qfluentwidgets SwitchSettingCard usually has self.switchButton.
-            # We can remove switchButton and re-add it? Or insertWidget.
-
-            # card.hBoxLayout.addWidget(btn_up)
-            # card.hBoxLayout.addWidget(btn_down)
-
-            # But we want them before the switch.
-            # Assuming hBoxLayout has the switch as the last item.
-            count = card.hBoxLayout.count()
-            # Insert at count-1 (before switch)
-            card.hBoxLayout.insertWidget(count - 1, btn_up)
-            card.hBoxLayout.insertWidget(count - 1, btn_down)
-            card.hBoxLayout.insertSpacing(count - 1, 10)
-
-            # Determine checked state
-            disabled_list = self.settings_manager.get_setting("plugins", "disabled", [])
-            is_enabled = pid not in disabled_list
-            card.switchButton.setChecked(is_enabled)
-
-            # Connect
+            card.setObjectName(f"pluginCard_{pid}")
+            card.setFixedHeight(70 + 18 * content.count("\n"))
+            card.setToolTip(details)
+            card.contentLabel.setWordWrap(True)
+            card.switchButton.setChecked(status.enabled)
+            card.switchButton.setEnabled(status.selected_version is not None)
             card.switchButton.checkedChanged.connect(
                 lambda checked, p=pid: self._on_plugin_toggled(p, checked)
             )
 
+            index = order_index.get(pid)
+            if index is not None:
+                self._add_plugin_button(
+                    card,
+                    pid,
+                    "up",
+                    FluentIcon.UP,
+                    "上移",
+                    lambda _, p=pid: self._move_plugin(p, -1),
+                    index > 0,
+                )
+                self._add_plugin_button(
+                    card,
+                    pid,
+                    "down",
+                    FluentIcon.DOWN,
+                    "下移",
+                    lambda _, p=pid: self._move_plugin(p, 1),
+                    index < len(order) - 1,
+                )
+
+            transaction = status.transaction
+            if transaction is not None and transaction.state == "pending":
+                self._add_plugin_button(
+                    card,
+                    pid,
+                    "cancel",
+                    FluentIcon.CANCEL,
+                    "取消待处理变更",
+                    lambda _, p=pid: self._run_plugin_action(
+                        manager.cancel_pending_plugin_change, p
+                    ),
+                )
+            if status.user_present:
+                tooltip = "卸载用户版本"
+                if status.blocking_dependents:
+                    tooltip = f"无法卸载，被以下插件依赖：{', '.join(status.blocking_dependents)}"
+                self._add_plugin_button(
+                    card,
+                    pid,
+                    "uninstall",
+                    FluentIcon.DELETE,
+                    tooltip,
+                    lambda _, p=pid, n=status.name: self._confirm_plugin_action(
+                        "确认卸载",
+                        f"卸载 {n} 的用户版本？变更将在重启后生效。",
+                        manager.queue_uninstall_plugin,
+                        p,
+                    ),
+                    status.can_uninstall,
+                )
+            if status.can_rollback:
+                self._add_plugin_button(
+                    card,
+                    pid,
+                    "rollback",
+                    FluentIcon.HISTORY,
+                    "回滚到上一个用户版本",
+                    lambda _, p=pid, n=status.name: self._confirm_plugin_action(
+                        "确认回滚",
+                        f"回滚 {n} 到上一个用户版本？变更将在重启后生效。",
+                        manager.queue_rollback_plugin,
+                        p,
+                    ),
+                )
+
+            self.plugin_cards[pid] = card
             self.plugin_group.addSettingCard(card)
 
-            # 2. Add Shortcut for this plugin to the shortcut group
-            self._add_shortcut_card(
-                self.shortcut_group,
-                f"plugin_{pid}",
-                FluentIcon.APPLICATION,
-                f"{name} 快捷键",
-                f"快速打开 {name}",
-                f"plugin.{pid}",
-                None,
-            )
+        self.plugin_group_host_layout.addWidget(self.plugin_group)
 
-        layout.addWidget(self.plugin_group)
+    @staticmethod
+    def _plugin_status_text(status):
+        source = {"bundled": "内置", "user": "用户", "not-installed": "未安装"}.get(
+            status.source, status.source
+        )
+        version = status.selected_version or status.user_version or "未知版本"
+        runtime = "已禁用" if not status.enabled else "已加载" if status.loaded else "未加载"
+        summary = f"v{version} · {source} · {runtime}"
+        details = []
+        if status.blocked_reason:
+            details.append(f"已阻止：{status.blocked_reason}")
+        if status.transaction:
+            operation = {"install": "安装/更新", "uninstall": "卸载"}.get(
+                status.transaction.operation, status.transaction.operation
+            )
+            state = {
+                "pending": "等待重启",
+                "rollback_pending": "回滚等待重启",
+                "failed": "失败",
+                "applied": "已应用",
+                "rolled_back": "已回滚",
+            }.get(status.transaction.state, status.transaction.state)
+            details.append(f"{operation}：{state}")
+            if status.transaction.error_message:
+                details.append(status.transaction.error_message)
+        if status.restart_required and not status.transaction:
+            details.append("需要重启")
+        if status.update_error:
+            details.append(f"更新失败：{status.update_error}")
+        if status.compatibility_error:
+            details.append(f"不兼容：{status.compatibility_error}")
+        if status.blocking_dependents:
+            details.append(f"依赖方：{', '.join(status.blocking_dependents)}")
+        return "\n".join((summary, *details)), "；".join(details) or summary
+
+    def _add_plugin_button(
+        self, card, plugin_id, action, icon, tooltip, callback, enabled=True
+    ):
+        button = ToolButton(icon, card)
+        button.setObjectName(f"pluginAction_{action}_{plugin_id}")
+        button.setFixedSize(28, 28)
+        button.setToolTip(tooltip)
+        button.setEnabled(enabled)
+        button.clicked.connect(callback)
+        card.hBoxLayout.insertWidget(card.hBoxLayout.indexOf(card.switchButton), button)
+        self.plugin_action_buttons[(plugin_id, action)] = button
+
+    def _confirm_plugin_action(self, title, content, action, plugin_id):
+        from qfluentwidgets import MessageBox
+
+        if MessageBox(title, content, self.window()).exec():
+            self._run_plugin_action(action, plugin_id)
+
+    def _run_plugin_action(self, action, plugin_id):
+        success, message = action(plugin_id)
+        self._show_plugin_result(success, message)
+        self._refresh_plugin_group()
+
+    def _show_plugin_result(self, success, message):
+        from qfluentwidgets import InfoBar, InfoBarPosition
+
+        (InfoBar.success if success else InfoBar.error)(
+            title="插件操作成功" if success else "插件操作失败",
+            content=message,
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000 if success else 5000,
+            parent=self.window(),
+        )
 
     def _move_plugin(self, plugin_id, direction):
         """Move plugin up or down in the list."""
@@ -808,9 +871,7 @@ class FluentSettingsCard(QWidget):
                 current_order[index],
             )
             manager.set_plugin_order(current_order)
-
-            # Refresh UI
-            self._add_plugin_group(self.plugin_group_layout)
+            self._refresh_plugin_group()
 
     def _add_shortcut_card(
         self, group, card_id, icon, title, content, setting_key, default_val
@@ -859,17 +920,9 @@ class FluentSettingsCard(QWidget):
 
     def _on_plugin_toggled(self, plugin_id, checked):
         """Handle plugin enable/disable toggle."""
-        disabled_list = self.settings_manager.get_setting("plugins", "disabled", [])
-        # We need a copy to modify
-        new_list = list(disabled_list)
-
-        if checked:
-            # Enable -> Remove from disabled list
-            if plugin_id in new_list:
-                new_list.remove(plugin_id)
-        else:
-            # Disable -> Add to disabled list
-            if plugin_id not in new_list:
-                new_list.append(plugin_id)
-
-        self.settings_manager.set_setting("plugins", "disabled", new_list)
+        success, message = self.settings_manager.plugin_manager.set_plugin_enabled(
+            plugin_id, checked
+        )
+        if not success:
+            self._show_plugin_result(False, message)
+        self._refresh_plugin_group()

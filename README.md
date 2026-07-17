@@ -5,6 +5,7 @@
 - [技术栈](#技术栈)
 - [代码架构](#代码架构)
 - [核心功能](#核心功能)
+- [插件开发](#插件开发)
 - [PySide6-Fluent-Widgets 使用指南](#pyside6-fluent-widgets-使用指南)
 - [开发注意事项](#开发注意事项)
 
@@ -12,11 +13,13 @@
 
 ## 项目概述
 
-Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的现代化桌面应用程序，采用 Fluent Design 设计语言，提供插件化架构和优雅的用户界面。
+Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的无边框桌面侧边栏工具。插件入口在顶部或屏幕侧边自然滚动，Settings 固定；插件详情继续使用紧凑的原生 Qt 界面。
 
 ### 主要特性
 - 🎨 Fluent Design 现代化界面
 - 🔌 插件化架构，支持动态加载/卸载插件
+- 支持 manifest v2 `.atplugin` 离线安装、更新、回滚和卸载
+- 支持插件前置依赖、版本约束以及受控命令/事件调用
 - ⚙️ 完整的设置管理系统
 - 🎯 系统托盘支持
 - 🌓 支持深色/浅色/跟随系统主题
@@ -27,9 +30,9 @@ Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的现代
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
-| Python | 3.10+ | 编程语言 |
-| PySide6 | 6.9.2 | Qt6 for Python 绑定 |
-| PySide6-Fluent-Widgets | 1.x | Fluent Design 组件库 |
+| Python | 3.11 | 编程语言与插件 ABI |
+| PySide6 | 6.10.2 | Qt6 for Python 绑定 |
+| PySide6-Fluent-Widgets | 1.11.0 | Fluent Design 组件库 |
 | SQLite | - | 本地数据存储 |
 | aiohttp | - | 异步本地网关、HTTP/WebSocket 反向代理 |
 
@@ -69,11 +72,9 @@ sidebar/
 │   │   └── data_service.py     # 数据服务
 │   └── state_store.py      # 状态持久化
 ├── plugins/                # 插件目录
-│   └── todo/               # Todo 插件示例
-│       ├── manifest.json       # 插件清单
-│       ├── plugin.py           # 插件实现
-│       ├── task_manager.py     # 任务管理
-│       └── db_manager.py       # 数据库管理
+│   ├── gateway_manager/    # 网关管理
+│   ├── ssh_manager/        # SSH/SFTP 管理
+│   └── toolbox/            # 开发工具箱
 └── ui/                     # UI 组件
     └── components/         # 公共组件
 ```
@@ -92,13 +93,14 @@ from qfluentwidgets import setTheme, Theme, setThemeColor
 
 #### 2. PluginManager - 插件管理器
 - 自动发现 `plugins/` 目录下的插件
-- 根据 `manifest.json` 加载插件
-- 管理插件生命周期 (load/unload)
+- 用户插件安装在 AppData，不覆盖 bundled 目录
+- 根据 manifest 前置依赖拓扑加载插件
+- 管理安装、更新、启停、回滚和卸载事务
 
-#### 3. MainWindow - 主窗口
-- 继承自 `qfluentwidgets.FluentWindow`
-- 提供导航界面和插件接口管理
-- 使用 `addSubInterface()` 添加插件页面
+#### 3. Window System - 窗口系统
+- `SidebarWindow` 是无系统标题栏的主入口，支持顶部/左侧/右侧布局
+- 插件位于可滚动区，Settings 固定在末端
+- `DetailWindow` 承载各插件原生详情界面
 
 #### 4. SettingsManager - 设置管理器
 - 管理应用设置的持久化
@@ -177,6 +179,10 @@ push_card = PushSettingCard(
     parent=general_group
 )
 ```
+
+## 插件开发
+
+正式插件使用 manifest v2 `.atplugin`。模板、打包、安装、数据边界和当前依赖限制见 [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md)。
 
 ---
 

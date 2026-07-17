@@ -21,3 +21,5 @@ dist
 *.db
 venv
 .venv
+front/node_modules
+TASK_PLAN*

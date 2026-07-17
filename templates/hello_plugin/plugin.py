@@ -15,14 +15,13 @@ from core.plugin_system.plugin_base import PluginBase
 class HelloPlugin(PluginBase):
     """
     一个简单的示例插件，展示如何与系统交互。
-    支持修改为 .pyd 导入到系统中。
     """
 
     def __init__(self, context):
         super().__init__(context)
         self.name = "Hello Plugin"
         self.description = (
-            "这是一个测试插件，用于演示如何通过 .pyd 或 .zip 直接添加插件。"
+            "这是一个测试插件，用于演示如何通过 .atplugin 添加插件。"
         )
         self.ui_widget = None
 
@@ -74,7 +73,7 @@ class HelloPlugin(PluginBase):
             "你好，世界！",
             "侧边栏工作得很好！",
             "插件化架构让一切变得简单。",
-            "这是一个来自 .pyd 插件的消息。",
+            "这是一个来自 .atplugin 的消息。",
             "保持专注，保持高效。",
         ]
         quote = random.choice(quotes)
@@ -91,7 +90,3 @@ class HelloPlugin(PluginBase):
             duration=2000,
             parent=self.ui_widget,
         )
-
-
-# 给自动化包装器识别的默认类名
-Plugin = HelloPlugin

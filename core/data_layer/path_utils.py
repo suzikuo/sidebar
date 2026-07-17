@@ -44,30 +44,46 @@ class PathManager:
     @staticmethod
     def get_plugin_search_paths() -> list[Path]:
         """
-        Get list of paths to search for plugins.
-        1. Bundled plugins (next to executable or in _internal)
-        2. User plugins in AppData
+        Get plugin roots in ascending priority order.
+
+        Bundled roots are read-only discovery sources. The dedicated AppData
+        user-plugins root is writable and intentionally comes last so it can
+        override a bundled plugin with the same id. Plugin data continues to
+        live separately under AppData/plugins/<id>.
         """
+        paths = PathManager.get_bundled_plugin_dirs()
+        paths.append(PathManager.get_user_plugins_dir())
+        return paths
+
+    @staticmethod
+    def get_bundled_plugin_dirs() -> list[Path]:
+        """Return existing read-only plugin roots shipped with the application."""
         paths = []
         base_dir = PathManager.get_base_dir()
 
-        # 1. Bundled plugins
-        # Check standard location (root of bundle)
         bundled_plugins = base_dir / "plugins"
         if bundled_plugins.exists():
             paths.append(bundled_plugins)
 
-        # Check PyInstaller 6.x+ _internal location
         internal_plugins = base_dir / "_internal" / "plugins"
         if internal_plugins.exists() and internal_plugins not in paths:
             paths.append(internal_plugins)
 
-        # 2. User plugins in AppData
-        user_plugins = PathManager.get_app_data_root() / "plugins"
-        user_plugins.mkdir(parents=True, exist_ok=True)
-        paths.append(user_plugins)
-
         return paths
+
+    @staticmethod
+    def get_user_plugins_dir() -> Path:
+        """Return the writable AppData directory used for user-installed plugins."""
+        user_plugins = PathManager.get_app_data_root() / "user-plugins"
+        user_plugins.mkdir(parents=True, exist_ok=True)
+        return user_plugins
+
+    @staticmethod
+    def get_plugin_dependency_store_dir() -> Path:
+        """Return the versioned AppData root for content-addressed dependencies."""
+        store = PathManager.get_app_data_root() / "plugin-dependencies" / "v1"
+        store.mkdir(parents=True, exist_ok=True)
+        return store
 
     @staticmethod
     def get_config_path(filename: str) -> str:

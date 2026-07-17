@@ -1,11 +1,47 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
+from core.plugin_system.host_environment import HOST_DISTRIBUTIONS
+from os.path import dirname
+from PyInstaller.building.datastruct import Tree
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+    copy_metadata,
+)
 
-datas = [('plugins', 'plugins'), ('core', 'core'), ('ui', 'ui'), ('VERSION', '.')]
-binaries = []
-hiddenimports = ['aiohttp', 'base64', 'ctypes', 'mimetypes', 'paramiko', 'random', 're', 'shutil', 'sqlite3', 'string', 'subprocess', 'tempfile', 'uuid']
-tmp_ret = collect_all('qfluentwidgets')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+def source_tree(root):
+    tree = Tree(
+        root,
+        prefix=root,
+        excludes=['__pycache__', '*.pyc', '*.pyo'],
+    )
+    return [(source, dirname(target) or '.') for target, source, _ in tree]
+
+
+datas = source_tree('plugins') + source_tree('ui') + [('VERSION', '.')]
+for distribution in HOST_DISTRIBUTIONS:
+    datas += copy_metadata(distribution)
+binaries = collect_dynamic_libs('qfluentwidgets')
+hiddenimports = [
+    'aiohttp',
+    'base64',
+    'core.plugin_system.plugin_base',
+    'core.security',
+    'ctypes',
+    'mimetypes',
+    'paramiko',
+    'random',
+    're',
+    'shutil',
+    'sqlite3',
+    'string',
+    'subprocess',
+    'tempfile',
+    'uuid',
+]
+datas += collect_data_files('qfluentwidgets')
+hiddenimports += collect_submodules('qfluentwidgets')
 
 
 a = Analysis(
@@ -39,7 +75,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['C:\\Users\\98027\\Desktop\\sidebar\\icon.ico'],
+    icon=['icon.ico'],
 )
 coll = COLLECT(
     exe,

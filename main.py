@@ -11,6 +11,26 @@ import os
 import subprocess
 import sys
 
+from core.process_control import (
+    ProcessControlError,
+    build_restart_command,
+    extract_wait_for_pid,
+    wait_for_process_exit,
+)
+
+
+try:
+    _wait_for_pid, _clean_argv = extract_wait_for_pid(sys.argv)
+    sys.argv[:] = _clean_argv
+    if _wait_for_pid is not None and not wait_for_process_exit(_wait_for_pid):
+        raise ProcessControlError(
+            "WAIT_PROCESS_TIMEOUT",
+            "The previous Agile Tiles process did not exit within 60 seconds.",
+        )
+except ProcessControlError as error:
+    print(f"Agile Tiles restart error [{error.code}]: {error}", file=sys.stderr)
+    raise SystemExit(2) from error
+
 from PySide6.QtCore import QObject, Slot  # noqa: E402
 from PySide6.QtGui import QAction, QFont  # noqa: E402
 from PySide6.QtWidgets import (
@@ -33,13 +53,14 @@ from qfluentwidgets import (
     setThemeColor,
 )
 
+from core.api_gateway import ApiRegistry
 from core.data_layer.data_service import DataService
 from core.data_layer.path_utils import PathManager
 from core.input_system.shortcut_manager import ShortcutManager
 from core.logger import logger
 from core.plugin_system.event_bus import EventBus
 from core.plugin_system.plugin_manager import PluginManager
-from core.settings.settings_manager import SettingsManager
+from core.settings import SettingsApiService, SettingsManager
 from core.state_store import StateStore
 from core.ui_kernel.design_tokens import DesignTokens
 from core.ui_kernel.theme_engine import ThemeEngine
@@ -153,6 +174,7 @@ class AgileTilesApp:
 
         # 1. Initialize Core Services
         self.event_bus = EventBus()
+        self.api_registry = ApiRegistry()
         self.data_service = DataService(db_path)
         self.state_store = StateStore(state_path)
         self.tokens = DesignTokens()
@@ -160,6 +182,11 @@ class AgileTilesApp:
 
         # 2. Initialize Core Settings (NOT a plugin)
         self.settings_manager = SettingsManager(self.theme_engine, self.state_store)
+        self.settings_api = SettingsApiService(
+            self.api_registry,
+            self.settings_manager,
+        )
+        self.settings_api.register_routes()
 
         # 2.1 Initialize Shortcut Manager
         self.shortcut_manager = ShortcutManager(self.settings_manager)
@@ -194,7 +221,10 @@ class AgileTilesApp:
         # 5. Initialize Plugin System
         plugins_dirs = [str(p) for p in PathManager.get_plugin_search_paths()]
         self.plugin_manager = PluginManager(
-            plugins_dirs, self.event_bus, self.state_store
+            plugins_dirs,
+            self.event_bus,
+            self.state_store,
+            self.api_registry,
         )
         self.plugin_manager.plugin_loaded.connect(self._on_plugin_loaded)
         self.plugin_manager.plugin_unloaded.connect(self._on_plugin_unloaded)
@@ -316,7 +346,11 @@ class AgileTilesApp:
                 description = getattr(instance, "description", "")
                 tooltip = f"{name}\n{description}" if description else name
                 self.sidebar_window.add_item(
-                    route_key=plugin_id, icon=icon, text=name, tooltip=tooltip
+                    route_key=plugin_id,
+                    icon=icon,
+                    text=name,
+                    position=NavigationItemPosition.SCROLL,
+                    tooltip=tooltip,
                 )
 
                 # Add to Detail Window (Content)
@@ -326,16 +360,13 @@ class AgileTilesApp:
                 try:
                     sidebar_widget = instance.get_sidebar_widget()
                     if sidebar_widget is not None:
-                        # Special case: Time plugin stays at the far end (stretch)
-                        is_stretch = plugin_id == "time"
-
                         # Fetch configuration
                         config = {}
                         if hasattr(instance, "get_sidebar_widget_config"):
                             config = instance.get_sidebar_widget_config()
 
                         self.sidebar_window.add_sidebar_widget(
-                            sidebar_widget, stretch=is_stretch, config=config
+                            sidebar_widget, config=config
                         )
                 except Exception as e:
                     logger.warning(f"Plugin {plugin_id} get_sidebar_widget error: {e}")
@@ -360,7 +391,7 @@ class AgileTilesApp:
     def _do_activate_plugin(self, plugin_id):
         """Actual activation logic."""
         self.show_window()
-        self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
+        self.sidebar_window.set_current_item(plugin_id)
         # Open the specific plugin
         # We need to simulate a click or just call show_plugin
         # Also need sidebar geometry
@@ -374,14 +405,14 @@ class AgileTilesApp:
 
     def _handle_plugin_selection(self, plugin_id: str):
         """Handle formal 'Selection' (e.g. from context menu)."""
-        self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
+        self.sidebar_window.set_current_item(plugin_id)
         self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
 
     def _handle_plugin_action(self, plugin_id: str):
         """Handle sidebar left-click on a plugin."""
         # 1. Special case for core settings
         if plugin_id == "settings":
-            self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
+            self.sidebar_window.set_current_item(plugin_id)
             self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
             return
 
@@ -401,7 +432,7 @@ class AgileTilesApp:
 
         # 4. If not handled, show the detail window
         if not handled:
-            self.sidebar_window.navigationInterface.setCurrentItem(plugin_id)
+            self.sidebar_window.set_current_item(plugin_id)
             self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
 
     def _on_sidebar_context_menu(self, plugin_id: str, menu):
@@ -560,7 +591,13 @@ class AgileTilesApp:
         # or the exe path if it's a frozen application.
         # sys.argv contains the original arguments.
         try:
-            subprocess.Popen([sys.executable] + sys.argv)
+            command = build_restart_command(
+                sys.executable,
+                sys.argv,
+                os.getpid(),
+                frozen=bool(getattr(sys, "frozen", False)),
+            )
+            subprocess.Popen(command)
         except Exception as e:
             logger.error(f"Failed to restart: {e}")
 

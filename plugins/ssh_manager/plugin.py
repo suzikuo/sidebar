@@ -50,13 +50,6 @@ class SSHManagerPlugin(PluginBase):
 
     def on_load(self):
         logger.info("SSH Manager loading...")
-        # Migration: Add color column if missing
-        try:
-            self.db.execute("ALTER TABLE ssh_connections ADD COLUMN color TEXT")
-            logger.info("SSH Manager migration: Added color column")
-        except Exception:
-            # Column likely already exists
-            pass
 
     def on_unload(self):
         logger.info("SSH Manager unloading...")
@@ -137,9 +130,7 @@ class SSHManagerPlugin(PluginBase):
 
     def connect_ssh(self, connection_id):
         """Launch SSH connection in a new terminal."""
-        conn = self.db.fetchone(
-            "SELECT * FROM ssh_connections WHERE id = ?", (connection_id,)
-        )
+        conn = self.db.get_connection(connection_id)
         if not conn:
             return
 
@@ -147,11 +138,11 @@ class SSHManagerPlugin(PluginBase):
         # Assuming fetchone returns a dict if using Row factory, or just index it
         # Let's check typical db usage in this app
 
-        name = conn.get("name") if isinstance(conn, dict) else conn[1]
-        host = conn.get("host") if isinstance(conn, dict) else conn[2]
-        user = conn.get("user") if isinstance(conn, dict) else conn[3]
-        port = conn.get("port") if isinstance(conn, dict) else conn[4]
-        pem_path = conn.get("pem_path") if isinstance(conn, dict) else conn[5]
+        name = conn["name"]
+        host = conn["host"]
+        user = conn["user"]
+        port = conn["port"]
+        pem_path = conn["pem_path"]
 
         # Reconstruct full path if pem_path is just a filename
         if pem_path and not os.path.isabs(pem_path):
@@ -183,17 +174,15 @@ class SSHManagerPlugin(PluginBase):
 
     def run_scp(self, connection_id, transfer_data):
         """Execute SCP command in a new terminal."""
-        conn = self.db.fetchone(
-            "SELECT * FROM ssh_connections WHERE id = ?", (connection_id,)
-        )
+        conn = self.db.get_connection(connection_id)
         if not conn:
             return
 
-        name = conn.get("name") if isinstance(conn, dict) else conn[1]
-        host = conn.get("host") if isinstance(conn, dict) else conn[2]
-        user = conn.get("user") if isinstance(conn, dict) else conn[3]
-        port = conn.get("port") if isinstance(conn, dict) else conn[4]
-        pem_path = conn.get("pem_path") if isinstance(conn, dict) else conn[5]
+        name = conn["name"]
+        host = conn["host"]
+        user = conn["user"]
+        port = conn["port"]
+        pem_path = conn["pem_path"]
 
         # Reconstruct path
         if pem_path and not os.path.isabs(pem_path):

@@ -1,5 +1,8 @@
 import sqlite3
+from contextlib import closing
 from urllib.parse import urlparse
+
+from core.security import is_protected_secret, protect_secret, unprotect_secret
 
 
 class GatewayDatabase:
@@ -14,7 +17,7 @@ class GatewayDatabase:
         return conn
 
     def _create_tables(self):
-        with self._get_connection() as conn:
+        with closing(self._get_connection()) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS services (
@@ -94,6 +97,7 @@ class GatewayDatabase:
                 """
             )
             self._migrate_single_cloudflare_settings(conn)
+            self._protect_cloudflare_tokens(conn)
 
     def _migrate_single_cloudflare_settings(self, conn):
         existing = conn.execute("SELECT COUNT(*) AS count FROM cloudflare_tunnels").fetchone()
@@ -126,30 +130,126 @@ class GatewayDatabase:
             ),
         )
 
-    def execute(self, query, params=()):
-        with self._get_connection() as conn:
-            cursor = conn.execute(query, params)
-            conn.commit()
-            return cursor
+    def _protect_cloudflare_tokens(self, conn):
+        for table_name in ("cloudflare_tunnel_settings", "cloudflare_tunnels"):
+            rows = conn.execute(
+                f"SELECT id, token FROM {table_name} WHERE token IS NOT NULL AND token != ''"
+            ).fetchall()
+            for row in rows:
+                token = row["token"] or ""
+                if is_protected_secret(token):
+                    continue
+                conn.execute(
+                    f"UPDATE {table_name} SET token = ? WHERE id = ?",
+                    (protect_secret(token), row["id"]),
+                )
 
-    def fetchall(self, query, params=()):
-        with self._get_connection() as conn:
+    @staticmethod
+    def _decrypt_cloudflare_row(row):
+        if not row:
+            return None
+        data = dict(row)
+        data["token"] = unprotect_secret(data.get("token") or "")
+        return data
+
+    def _execute(self, query, params=()):
+        with closing(self._get_connection()) as conn, conn:
+            cursor = conn.execute(query, params)
+            return cursor.rowcount
+
+    def _fetchall(self, query, params=()):
+        with closing(self._get_connection()) as conn:
             cursor = conn.execute(query, params)
             return cursor.fetchall()
 
-    def fetchone(self, query, params=()):
-        with self._get_connection() as conn:
+    def _fetchone(self, query, params=()):
+        with closing(self._get_connection()) as conn:
             cursor = conn.execute(query, params)
             return cursor.fetchone()
 
     def list_services(self):
-        return self.fetchall("SELECT * FROM services ORDER BY created_at DESC")
+        return self._fetchall("SELECT * FROM services ORDER BY created_at DESC")
+
+    def get_service(self, service_id):
+        return self._fetchone("SELECT * FROM services WHERE id = ?", (service_id,))
+
+    def save_service(self, data, service_id=None):
+        params = (
+            str(data.get("name") or "").strip(),
+            str(data.get("target_url") or "").strip(),
+            1 if data.get("enabled") else 0,
+            str(data.get("remarks") or "").strip(),
+        )
+        if not params[0] or not params[1]:
+            raise ValueError("Service name and target URL are required.")
+
+        if service_id is None:
+            self._execute(
+                """
+                INSERT INTO services (name, target_url, enabled, remarks)
+                VALUES (?, ?, ?, ?)
+                """,
+                params,
+            )
+        else:
+            self._execute(
+                """
+                UPDATE services
+                SET name=?, target_url=?, enabled=?, remarks=?
+                WHERE id=?
+                """,
+                params + (service_id,),
+            )
+
+    def delete_service(self, service_id):
+        return self._execute("DELETE FROM services WHERE id = ?", (service_id,)) > 0
 
     def list_gateways(self):
-        return self.fetchall("SELECT * FROM gateways ORDER BY created_at DESC")
+        return self._fetchall("SELECT * FROM gateways ORDER BY created_at DESC")
+
+    def get_gateway(self, gateway_id):
+        return self._fetchone("SELECT * FROM gateways WHERE id = ?", (gateway_id,))
+
+    def save_gateway(self, data, gateway_id=None):
+        port = int(data.get("listen_port"))
+        if not 1 <= port <= 65535:
+            raise ValueError("Gateway port must be between 1 and 65535.")
+
+        params = (
+            str(data.get("name") or "").strip(),
+            str(data.get("listen_host") or "127.0.0.1").strip(),
+            port,
+            1 if data.get("enabled") else 0,
+            1 if data.get("auto_start") else 0,
+            str(data.get("remarks") or "").strip(),
+        )
+        if not params[0]:
+            raise ValueError("Gateway name is required.")
+
+        if gateway_id is None:
+            self._execute(
+                """
+                INSERT INTO gateways
+                    (name, listen_host, listen_port, enabled, auto_start, remarks)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                params,
+            )
+        else:
+            self._execute(
+                """
+                UPDATE gateways
+                SET name=?, listen_host=?, listen_port=?, enabled=?, auto_start=?, remarks=?
+                WHERE id=?
+                """,
+                params + (gateway_id,),
+            )
+
+    def delete_gateway(self, gateway_id):
+        return self._execute("DELETE FROM gateways WHERE id = ?", (gateway_id,)) > 0
 
     def list_routes(self):
-        return self.fetchall(
+        return self._fetchall(
             """
             SELECT
                 r.*,
@@ -165,13 +265,50 @@ class GatewayDatabase:
             """
         )
 
+    def get_route(self, route_id):
+        return self._fetchone(
+            "SELECT * FROM gateway_routes WHERE id = ?", (route_id,)
+        )
+
+    def save_route(self, data, route_id=None):
+        params = (
+            int(data.get("gateway_id")),
+            int(data.get("service_id")),
+            normalize_path_prefix(data.get("path_prefix")),
+            1 if data.get("preserve_host") else 0,
+            1 if data.get("enabled") else 0,
+        )
+        if route_id is None:
+            self._execute(
+                """
+                INSERT INTO gateway_routes
+                    (gateway_id, service_id, path_prefix, preserve_host, enabled)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                params,
+            )
+        else:
+            self._execute(
+                """
+                UPDATE gateway_routes
+                SET gateway_id=?, service_id=?, path_prefix=?, preserve_host=?, enabled=?
+                WHERE id=?
+                """,
+                params + (route_id,),
+            )
+
+    def delete_route(self, route_id):
+        return self._execute(
+            "DELETE FROM gateway_routes WHERE id = ?", (route_id,)
+        ) > 0
+
     def get_runtime_config(self, auto_only=False):
         gateway_filter = "WHERE g.enabled = 1"
         params = []
         if auto_only:
             gateway_filter += " AND g.auto_start = 1"
 
-        gateways = self.fetchall(
+        gateways = self._fetchall(
             f"""
             SELECT g.*
             FROM gateways g
@@ -183,7 +320,7 @@ class GatewayDatabase:
 
         result = []
         for gateway in gateways:
-            routes = self.fetchall(
+            routes = self._fetchall(
                 """
                 SELECT
                     r.id,
@@ -222,7 +359,7 @@ class GatewayDatabase:
         return result
 
     def get_cloudflare_settings(self):
-        row = self.fetchone(
+        row = self._fetchone(
             """
             SELECT cloudflared_path, token, auto_start
             FROM cloudflare_tunnel_settings
@@ -235,41 +372,50 @@ class GatewayDatabase:
                 "token": "",
                 "auto_start": 0,
             }
-        return dict(row)
+        return self._decrypt_cloudflare_row(row)
 
     def save_cloudflare_settings(self, cloudflared_path, token, auto_start):
-        self.execute(
+        self._execute(
             """
             INSERT OR REPLACE INTO cloudflare_tunnel_settings
                 (id, cloudflared_path, token, auto_start, updated_at)
             VALUES
                 (1, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
-            (cloudflared_path or "cloudflared", token or "", 1 if auto_start else 0),
+            (
+                cloudflared_path or "cloudflared",
+                protect_secret(token or ""),
+                1 if auto_start else 0,
+            ),
         )
 
     def list_cloudflare_tunnels(self):
-        return self.fetchall(
-            """
-            SELECT
-                t.*,
-                g.name AS gateway_name,
-                g.listen_host,
-                g.listen_port
-            FROM cloudflare_tunnels t
-            LEFT JOIN gateways g ON g.id = t.gateway_id
-            ORDER BY t.created_at DESC
-            """
-        )
+        return [
+            self._decrypt_cloudflare_row(row)
+            for row in self._fetchall(
+                """
+                SELECT
+                    t.*,
+                    g.name AS gateway_name,
+                    g.listen_host,
+                    g.listen_port
+                FROM cloudflare_tunnels t
+                LEFT JOIN gateways g ON g.id = t.gateway_id
+                ORDER BY t.created_at DESC
+                """
+            )
+        ]
 
     def get_cloudflare_tunnel(self, tunnel_id):
-        return self.fetchone(
-            """
-            SELECT *
-            FROM cloudflare_tunnels
-            WHERE id = ?
-            """,
-            (tunnel_id,),
+        return self._decrypt_cloudflare_row(
+            self._fetchone(
+                """
+                SELECT *
+                FROM cloudflare_tunnels
+                WHERE id = ?
+                """,
+                (tunnel_id,),
+            )
         )
 
     def get_cloudflare_tunnels_for_runtime(self, auto_only=False):
@@ -277,8 +423,8 @@ class GatewayDatabase:
         if auto_only:
             where += " AND auto_start = 1"
         return [
-            dict(row)
-            for row in self.fetchall(
+            self._decrypt_cloudflare_row(row)
+            for row in self._fetchall(
                 f"""
                 SELECT *
                 FROM cloudflare_tunnels
@@ -292,14 +438,14 @@ class GatewayDatabase:
         params = (
             data["name"],
             data.get("cloudflared_path") or "cloudflared",
-            data.get("token") or "",
+            protect_secret(data.get("token") or ""),
             data.get("gateway_id"),
             1 if data.get("enabled") else 0,
             1 if data.get("auto_start") else 0,
             data.get("remarks") or "",
         )
         if tunnel_id is None:
-            self.execute(
+            self._execute(
                 """
                 INSERT INTO cloudflare_tunnels
                     (name, cloudflared_path, token, gateway_id, enabled, auto_start, remarks)
@@ -309,7 +455,7 @@ class GatewayDatabase:
                 params,
             )
         else:
-            self.execute(
+            self._execute(
                 """
                 UPDATE cloudflare_tunnels
                 SET name=?, cloudflared_path=?, token=?, gateway_id=?, enabled=?, auto_start=?, remarks=?
@@ -319,7 +465,7 @@ class GatewayDatabase:
             )
 
     def delete_cloudflare_tunnel(self, tunnel_id):
-        self.execute("DELETE FROM cloudflare_tunnels WHERE id = ?", (tunnel_id,))
+        self._execute("DELETE FROM cloudflare_tunnels WHERE id = ?", (tunnel_id,))
 
     def close(self):
         pass

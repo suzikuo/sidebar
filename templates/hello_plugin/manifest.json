@@ -1,9 +1,34 @@
 {
-    "id": "hello_plugin",
-    "name": "Hello World",
-    "version": "1.0.0",
-    "entry": "plugin.py",
-    "class": "HelloPlugin",
-    "api_version": "1.0",
-    "description": "这也是一个用于演示的示例插件，可以通过 .zip 导入。"
+  "manifest_version": 2,
+  "id": "hello_plugin",
+  "name": "Hello World",
+  "version": "1.0.0",
+  "entry": "plugin.py",
+  "class": "HelloPlugin",
+  "api_version": "1.0",
+  "description": "用于演示 .atplugin 安装、加载和原生侧边栏视图的示例插件。",
+  "author": "Agile Tiles",
+  "compatibility": {
+    "app": ">=1.0.0",
+    "python_abi": "cp311",
+    "platform": "win_amd64"
+  },
+  "dependencies": {
+    "host": [
+      "PySide6==6.10.2",
+      "PySide6-Fluent-Widgets==1.11.0"
+    ],
+    "python": [],
+    "plugins": {}
+  },
+  "files": {},
+  "native_modules": [],
+  "requires_restart": false,
+  "ui": {
+    "type": "native"
+  },
+  "permissions": [
+    "ui"
+  ],
+  "capabilities": []
 }

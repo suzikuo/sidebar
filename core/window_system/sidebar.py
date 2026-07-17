@@ -1,6 +1,6 @@
 from PySide6.QtCore import QEvent, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
-from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     Action,
     FluentIcon,
@@ -56,33 +56,11 @@ class SidebarWindow(QWidget):
 
         self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
         self.vBoxLayout.setSpacing(0)
-        self.vBoxLayout.addWidget(self.navigationInterface)
-
-        # Scroll Area for plugin widgets
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QScrollArea.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll_area.setStyleSheet("background: transparent;")
-
-        self.widget_container = QWidget()
-        self.widget_container.setStyleSheet("background: transparent;")
-        if self.edge == "top":
-            self.container_layout = QHBoxLayout(self.widget_container)
-        else:
-            self.container_layout = QVBoxLayout(self.widget_container)
-        self.container_layout.setContentsMargins(0, 0, 0, 0)
-        self.container_layout.setSpacing(5)
-        self.scroll_area.setWidget(self.widget_container)
-
-        self.vBoxLayout.addWidget(self.scroll_area)
-        self.vBoxLayout.addStretch(1)
-        self.vBoxLayout.addSpacing(20)  # Bottom margin
+        self.vBoxLayout.addWidget(self.navigationInterface, 1)
 
         # Force transparent background on all child widgets
         self.navigationInterface.setStyleSheet("""
-            NavigationInterface, HorizontalNavigationInterface, QWidget, QScrollArea, QFrame {
+            NavigationInterface, HorizontalNavigationInterface, QWidget, QFrame {
                 background: transparent;
                 background-color: transparent;
             }
@@ -122,8 +100,6 @@ class SidebarWindow(QWidget):
         self.items = {}
         self.item_data = {}  # Store metadata for reconstruction
         self._plugin_keys = []
-        self.overflow_expanded = False
-        self._overflow_item = None
         self._update_style()  # Cache style settings
         self._init_behavior()
         # Timers removed in favor of events
@@ -163,12 +139,12 @@ class SidebarWindow(QWidget):
     def add_sidebar_widget(
         self, widget: QWidget, stretch: bool = False, config: dict = None
     ):
-        """Insert a plugin-provided widget into the sidebar layout.
+        """Insert a plugin-provided widget into the scrollable plugin area.
 
         Args:
             widget: The widget to insert.
-            stretch: If True, insert after the stretch (far right/bottom).
-                    If False, insert into the scrollable plugin area.
+            stretch: Retained for plugin API compatibility.  Widgets are always
+                     kept before Settings so Settings remains at the fixed end.
             config: Optional dict with size constraints:
                     {"max_height": int, "max_width": int, ...}
         """
@@ -193,14 +169,15 @@ class SidebarWindow(QWidget):
             else:
                 widget.setMaximumHeight(100)
 
-        # 3. Insert into layout
-        if stretch:
-            # Fixed widgets stay in the main layout at the end (before spacing)
-            idx = self.vBoxLayout.count() - 1
-            self.vBoxLayout.insertWidget(idx, widget)
-        else:
-            # Regular widgets go into the scrollable container
-            self.container_layout.addWidget(widget)
+        # 3. Keep all plugin content in the navigation interface's scroll region.
+        # This leaves the BOTTOM Settings item fixed at the sidebar's far end and
+        # avoids reserving an empty area when no plugin supplies extra content.
+        plugin_layout = (
+            self.navigationInterface.scrollLayout
+            if self.edge == "top"
+            else self.navigationInterface.panel.scrollLayout
+        )
+        plugin_layout.addWidget(widget)
 
         self._sidebar_widgets.append(widget)
 
@@ -212,8 +189,6 @@ class SidebarWindow(QWidget):
         # Update edge orientation
         old_edge = self.edge
         self.edge = settings.get("sidebar_position", "right")
-        self.max_plugins_count = settings.get("max_plugins_count", 0)
-
         if old_edge != self.edge:
             # Notify widgets of orientation change
             for widget in self._sidebar_widgets:
@@ -227,7 +202,6 @@ class SidebarWindow(QWidget):
         # Only set alpha on background color, not the entire window
         # This keeps content (icons, text) opaque while background is transparent
         self.cached_bg_color.setAlphaF(self.cached_opacity)
-        self._update_overflow_visibility()
 
     def set_detail_window(self, window):
         """Set reference to detail window for coordinated hiding."""
@@ -380,10 +354,9 @@ class SidebarWindow(QWidget):
         item.setToolTip(tooltip or text)
         self.items[route_key] = item
 
-        if position == NavigationItemPosition.TOP:
+        if position == NavigationItemPosition.SCROLL:
             if route_key not in self._plugin_keys:
                 self._plugin_keys.append(route_key)
-            self._update_overflow_visibility()
 
         # Install event filter to catch right clicks
         item.installEventFilter(self)
@@ -408,152 +381,35 @@ class SidebarWindow(QWidget):
 
         if route_key in self._plugin_keys:
             self._plugin_keys.remove(route_key)
-            self._update_overflow_visibility()
 
     def update_plugin_order(self, ordered_ids: list):
-        """Reorder plugin items (Position.TOP) according to the list.
+        """Reorder scrollable plugin items according to the list.
 
         Args:
             ordered_ids: List of route_keys in desired order.
         """
-        # 1. Identify items to reorder (only plugins/TOP items)
-        # We assume anything in ordered_ids is a plugin and uses SCROLL/TOP position
-
-        # We need to preserve the Settings item (BOTTOM) and potentially others not involved.
-        # But for simplicity, we can remove ALL TOP items and re-add them.
-
-        # Snapshot current items
-
-        # Filter strictly for things in our managed list OR things that are clearly plugins
-        # For now, let's process the ordered_ids.
-
-        added_keys = set()
-
-        # Remove all affected items first to clear the slate
-        # Logic: Remove item from UI, but keep metadata for re-adding
-
-        # It's tricky to remove from layout without visual glitch, but acceptable for settings change.
-        # We walk through ordered_ids. If it exists in self.items, we remove and re-add.
-        # But simply removing and adding might put them at the end of the "TOP" list.
-        # So we really need to remove ALL TOP-positioned items first, then re-add them in order.
-
-        # Find all plugin keys (assuming they are the ones in ordered_ids + any others leftovers)
-        # Better: Identify all items with Position.TOP? NavigationInterface doesn't expose it easily?
-        # We stored it in self.item_data!
-
-        keys_to_reorder = [
-            k
-            for k, v in self.item_data.items()
-            if v.get("position") == NavigationItemPosition.TOP
-        ]
-
-        # Remove them from UI
-        for k in keys_to_reorder:
-            # Use official API to remove from NavigationInterface internals
-            self.navigationInterface.removeWidget(k)
-
-            # Clean up our own reference and ensure deletion
-            if k in self.items:
-                item = self.items.pop(k)
-                item.deleteLater()
-
-        # Re-add in order
-        # 1. Add explicitly ordered items
-        for pid in ordered_ids:
-            if pid in self.item_data:
-                self._add_item_from_data(pid)
-                added_keys.add(pid)
-
-        # 2. Add any leftovers (plugins that might not be in the order list for some reason)
-        for k in keys_to_reorder:
-            if k not in added_keys:
-                self._add_item_from_data(k)
-
-        # Update plugin keys list to match new order
-        self._plugin_keys = [k for k in ordered_ids if k in self.items]
-        for k in keys_to_reorder:
-            if k not in self._plugin_keys and k in self.items:
-                self._plugin_keys.append(k)
-
-        self._update_overflow_visibility()
-
-    def _add_item_from_data(self, route_key):
-        """Helper to add item using stored data."""
-        data = self.item_data.get(route_key)
-        if not data:
-            return
-
-        item = self.navigationInterface.addItem(
-            routeKey=route_key,
-            icon=data["icon"],
-            text=data["text"],
-            onClick=None,
-            position=data["position"],
+        order = [key for key in ordered_ids if key in self._plugin_keys]
+        order.extend(key for key in self._plugin_keys if key not in order)
+        layout = (
+            self.navigationInterface.scrollLayout
+            if self.edge == "top"
+            else self.navigationInterface.panel.scrollLayout
         )
+        for key in order:
+            layout.removeWidget(self.items[key])
+            layout.addWidget(self.items[key])
+        self._plugin_keys = order
 
-        # Check if item creation failed
-        if item is None:
-            logger.warning(f"Failed to re-add navigation item: {route_key}")
-            return
-
-        item.setToolTip(data.get("tooltip") or data["text"])
-        self.items[route_key] = item
-        item.installEventFilter(self)
-
-    def _update_overflow_visibility(self):
-        """Update visibility of plugins based on max_plugins_count."""
+    def set_current_item(self, route_key: str):
+        """Select an item and reveal it inside the plugin viewport."""
+        self.navigationInterface.setCurrentItem(route_key)
+        item = self.items.get(route_key)
         if (
-            self.max_plugins_count <= 0
-            or len(self._plugin_keys) <= self.max_plugins_count
+            item is not None
+            and self.edge != "top"
+            and self.item_data[route_key]["position"] == NavigationItemPosition.SCROLL
         ):
-            # Show all plugins, hide overflow button
-            for k in self._plugin_keys:
-                if k in self.items:
-                    self.items[k].show()
-            if self._overflow_item:
-                self._overflow_item.hide()
-            return
-
-        # Limit is active
-        shown_count = self.max_plugins_count
-        for i, k in enumerate(self._plugin_keys):
-            if k in self.items:
-                if self.overflow_expanded or i < shown_count:
-                    self.items[k].show()
-                else:
-                    self.items[k].hide()
-
-        # Add or update overflow button
-        if self._overflow_item:
-            self.navigationInterface.removeWidget("overflow_toggle")
-            self._overflow_item = None
-
-        # Determine icons based on orientation
-        if self.edge == "top":
-            collapsed_icon = FluentIcon.CHEVRON_RIGHT_MED
-            expanded_icon = FluentIcon.CHEVRON_DOWN_MED
-        else:
-            collapsed_icon = FluentIcon.CHEVRON_DOWN_MED
-            expanded_icon = FluentIcon.CHEVRON_RIGHT_MED
-
-        icon = expanded_icon if self.overflow_expanded else collapsed_icon
-
-        self._overflow_item = self.navigationInterface.addItem(
-            routeKey="overflow_toggle",
-            icon=icon,
-            text="More" if not self.overflow_expanded else "Less",
-            onClick=self._toggle_overflow,
-            position=NavigationItemPosition.TOP,
-        )
-        self._overflow_item.setToolTip(
-            "Show less plugins" if self.overflow_expanded else "Show more plugins"
-        )
-        self._overflow_item.show()
-
-    def _toggle_overflow(self):
-        """Toggle the overflow expansion."""
-        self.overflow_expanded = not self.overflow_expanded
-        self._update_overflow_visibility()
+            self.navigationInterface.panel.scrollArea.ensureWidgetVisible(item)
 
     def eventFilter(self, obj, event):
         """Handle internal events and context menus."""

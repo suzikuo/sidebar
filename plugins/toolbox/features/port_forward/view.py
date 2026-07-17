@@ -1,9 +1,10 @@
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QHeaderView, QTableWidgetItem
 from qfluentwidgets import (TableWidget, PrimaryPushButton, ToolButton, FluentIcon, 
                             MessageBoxBase, SubtitleLabel, LineEdit, BodyLabel, InfoBar, InfoBarPosition)
 
-from .backend import get_proxies, add_proxy, delete_proxy
+from .backend import add_proxy, delete_proxy, get_proxies, validate_proxy_rule
 
 class ProxyTaskThread(QThread):
     finished_signal = Signal(bool)
@@ -31,12 +32,14 @@ class PortProxyDialog(MessageBoxBase):
         self.listenAddrEdit.setPlaceholderText("例如: 0.0.0.0")
         
         self.listenPortEdit = LineEdit(self)
+        self.listenPortEdit.setValidator(QIntValidator(1, 65535, self))
         self.listenPortEdit.setPlaceholderText("例如: 8080")
         
         self.connectAddrEdit = LineEdit(self)
         self.connectAddrEdit.setPlaceholderText("例如: 127.0.0.1")
         
         self.connectPortEdit = LineEdit(self)
+        self.connectPortEdit.setValidator(QIntValidator(1, 65535, self))
         self.connectPortEdit.setPlaceholderText("例如: 80")
         
         # Add widgets to the view layout
@@ -148,6 +151,31 @@ class PortForwardWidget(QWidget):
         self.setEnabled(True)
         self.load_data()
 
+        if not success:
+            InfoBar.error(
+                title="Operation failed",
+                content="The port forwarding command was cancelled or failed.",
+                parent=self,
+                position=InfoBarPosition.TOP,
+            )
+
+    def _validate_rule_data(self, data):
+        try:
+            return validate_proxy_rule(
+                data["listen_address"] or "0.0.0.0",
+                data["listen_port"],
+                data["connect_address"] or "127.0.0.1",
+                data["connect_port"],
+            )
+        except ValueError as exc:
+            InfoBar.error(
+                title="Invalid rule",
+                content=str(exc),
+                parent=self,
+                position=InfoBarPosition.TOP,
+            )
+            return None
+
     def on_add_clicked(self):
         dialog = PortProxyDialog(self)
         if dialog.exec():
@@ -156,11 +184,17 @@ class PortForwardWidget(QWidget):
                 InfoBar.error("错误", "端口不能为空", parent=self, position=InfoBarPosition.TOP)
                 return
             
-            # default listen address
-            l_addr = data['listen_address'] or "0.0.0.0"
-            c_addr = data['connect_address'] or "172.19.108.136"
-            
-            self._run_proxy_task(add_proxy, l_addr, data['listen_port'], c_addr, data['connect_port'])
+            rule = self._validate_rule_data(data)
+            if rule is None:
+                return
+
+            self._run_proxy_task(
+                add_proxy,
+                rule['listen_address'],
+                rule['listen_port'],
+                rule['connect_address'],
+                rule['connect_port'],
+            )
 
     def on_edit_clicked(self, proxy):
         dialog = PortProxyDialog(self, proxy_data=proxy)
@@ -170,10 +204,17 @@ class PortForwardWidget(QWidget):
                 InfoBar.error("错误", "端口不能为空", parent=self, position=InfoBarPosition.TOP)
                 return
                 
-            l_addr = data['listen_address'] or "0.0.0.0"
-            c_addr = data['connect_address'] or "172.19.108.136"
-            
-            self._run_proxy_task(add_proxy, l_addr, data['listen_port'], c_addr, data['connect_port'])
+            rule = self._validate_rule_data(data)
+            if rule is None:
+                return
+
+            self._run_proxy_task(
+                add_proxy,
+                rule['listen_address'],
+                rule['listen_port'],
+                rule['connect_address'],
+                rule['connect_port'],
+            )
             
     def on_delete_clicked(self, proxy):
         self._run_proxy_task(delete_proxy, proxy['listen_address'], proxy['listen_port'])

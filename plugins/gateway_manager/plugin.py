@@ -66,7 +66,14 @@ class GatewayManagerPlugin(PluginBase):
         return self.sidebar_widget
 
     def get_sidebar_widget_config(self) -> dict:
-        return {"max_height": 40, "max_width": 60}
+        # Reserve exactly one navigation cell.  The widget is intentionally
+        # icon-only so a narrow or short sidebar never needs to reflow text.
+        return {
+            "min_height": 40,
+            "max_height": 40,
+            "min_width": 40,
+            "max_width": 40,
+        }
 
     def get_icon(self):
         return FluentIcon.IOT

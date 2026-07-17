@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import posixpath
 import shlex
 import socket
@@ -234,11 +236,26 @@ def _join_remote(parent, name):
     return posixpath.normpath(posixpath.join(parent, name))
 
 
+class HostKeyConfirmationRequired(Exception):
+    """Raised when an SSH server presents an unknown host key."""
+
+    def __init__(self, hostname, key):
+        self.hostname = hostname
+        self.key = key
+        self.key_type = key.get_name()
+        digest = hashlib.sha256(key.asbytes()).digest()
+        self.fingerprint = "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+        super().__init__(
+            f"Unknown SSH host key for {hostname}: {self.key_type} {self.fingerprint}"
+        )
+
+
 class SFTPSession:
     """Keeps one SSH/SFTP connection open for a file transfer dialog."""
 
-    def __init__(self, connection):
+    def __init__(self, connection, known_hosts_path=None):
         self.connection = connection
+        self.known_hosts_path = Path(known_hosts_path) if known_hosts_path else None
         self.client = None
         self.sftp = None
 
@@ -285,7 +302,9 @@ class SFTPSession:
 
         try:
             self._log_connect_kwargs(connect_kwargs)
-            client = self._open_paramiko_client(paramiko, connect_kwargs)
+            client = self._open_paramiko_client(
+                paramiko, connect_kwargs, self.known_hosts_path
+            )
         except paramiko.AuthenticationException as original_exc:
             logger.error("Paramiko authentication failed", exc_info=True)
             legacy_kwargs = dict(connect_kwargs)
@@ -294,7 +313,9 @@ class SFTPSession:
             }
             try:
                 logger.info("Retrying Paramiko authentication with legacy RSA signatures")
-                client = self._open_paramiko_client(paramiko, legacy_kwargs)
+                client = self._open_paramiko_client(
+                    paramiko, legacy_kwargs, self.known_hosts_path
+                )
             except Exception:
                 logger.error(
                     "Paramiko legacy RSA authentication retry failed",
@@ -407,10 +428,35 @@ class SFTPSession:
 
         raise ValueError("Could not load private key. " + "; ".join(errors))
 
+    def trust_host_key(self, confirmation):
+        """Persist one explicitly confirmed host key for future connections."""
+        if self.known_hosts_path is None:
+            raise ValueError("No known_hosts path is configured for this session.")
+
+        import paramiko
+
+        self.known_hosts_path.parent.mkdir(parents=True, exist_ok=True)
+        host_keys = paramiko.HostKeys()
+        if self.known_hosts_path.exists():
+            host_keys.load(str(self.known_hosts_path))
+        host_keys.add(
+            confirmation.hostname,
+            confirmation.key_type,
+            confirmation.key,
+        )
+        host_keys.save(str(self.known_hosts_path))
+
     @staticmethod
-    def _open_paramiko_client(paramiko, connect_kwargs):
+    def _open_paramiko_client(paramiko, connect_kwargs, known_hosts_path=None):
+        class ConfirmUnknownHostKey(paramiko.MissingHostKeyPolicy):
+            def missing_host_key(self, client, hostname, key):
+                raise HostKeyConfirmationRequired(hostname, key)
+
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.load_system_host_keys()
+        if known_hosts_path and Path(known_hosts_path).exists():
+            client.load_host_keys(str(known_hosts_path))
+        client.set_missing_host_key_policy(ConfirmUnknownHostKey())
         try:
             client.connect(**connect_kwargs)
         except Exception:
@@ -669,6 +715,7 @@ class SFTPTaskThread(QThread):
     result = Signal(str, object)
     progress = Signal(str, int)
     error = Signal(str)
+    host_key_confirmation = Signal(object)
 
     def __init__(self, session, action, payload=None, parent=None):
         super().__init__(parent)
@@ -688,6 +735,8 @@ class SFTPTaskThread(QThread):
                 logger.info("SFTP session dropped; reconnecting once")
                 self.session.close()
                 self._run_action()
+        except HostKeyConfirmationRequired as exc:
+            self.host_key_confirmation.emit(exc)
         except ImportError:
             self.error.emit(
                 "Missing dependency: install paramiko to use visual file transfer."
@@ -1089,6 +1138,7 @@ class SFTPBrowserDialog(QDialog):
         self.session = None
         self.worker = None
         self._refresh_after_task = False
+        self._retry_after_host_key = False
         self._current_task = None
         self.remote_path = "."
         self.remoteDirCache = {}
@@ -1100,7 +1150,10 @@ class SFTPBrowserDialog(QDialog):
         self.blankIcon = QIcon()
 
         self._resolve_key_path()
-        self.session = SFTPSession(self.connection)
+        self.session = SFTPSession(
+            self.connection,
+            known_hosts_path=self.keys_dir.parent / "known_hosts",
+        )
         self._setup_ui()
         self._load_remote(".")
 
@@ -1420,6 +1473,7 @@ class SFTPBrowserDialog(QDialog):
         self.worker.result.connect(self._on_task_result)
         self.worker.progress.connect(self._on_task_progress)
         self.worker.error.connect(self._on_task_error)
+        self.worker.host_key_confirmation.connect(self._on_host_key_confirmation)
         self.worker.finished.connect(self._on_task_finished)
         self.worker.start()
 
@@ -1456,8 +1510,42 @@ class SFTPBrowserDialog(QDialog):
         self.progressBar.setValue(0)
         InfoBar.error("SFTP", message, duration=5000, parent=self.window())
 
+    def _on_host_key_confirmation(self, confirmation):
+        message = (
+            f"Host: {confirmation.hostname}\n"
+            f"Key type: {confirmation.key_type}\n"
+            f"Fingerprint: {confirmation.fingerprint}\n\n"
+            "Trust this host key and save it for future SFTP connections?"
+        )
+        result = QMessageBox.question(
+            self,
+            "Trust SSH host key?",
+            message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if result != QMessageBox.Yes:
+            self.statusLabel.setText("Host key rejected")
+            self.progressBar.setValue(0)
+            return
+
+        try:
+            self.session.trust_host_key(confirmation)
+        except Exception as exc:
+            logger.error("Failed to save SSH host key", exc_info=True)
+            self._on_task_error(f"Could not save SSH host key: {exc}")
+            return
+
+        self.statusLabel.setText("Host key trusted; reconnecting...")
+        self._retry_after_host_key = True
+
     def _on_task_finished(self):
         self._set_busy(False)
+        if self._retry_after_host_key and self._current_task:
+            self._retry_after_host_key = False
+            action, payload, status = self._current_task
+            self._start_task(action, payload, status)
+            return
         if self._refresh_after_task:
             self._refresh_after_task = False
             self._load_remote(self.remote_path, force_refresh=True)
@@ -1764,9 +1852,7 @@ class SSHManagerWidget(QWidget):
         """Reload connections from DB and update UI."""
         self.flowLayout.takeAllWidgets()
 
-        conns = self.db.fetchall(
-            "SELECT * FROM ssh_connections ORDER BY created_at DESC"
-        )
+        conns = self.db.list_connections()
 
         for conn in conns:
             # Use name-based access which is much safer across migrations
@@ -1797,21 +1883,7 @@ class SSHManagerWidget(QWidget):
         if dialog.exec():
             data = dialog.get_data()
             if dialog.validate():
-                self.db.execute(
-                    """
-                    INSERT INTO ssh_connections (name, host, user, port, pem_path, remarks, color)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        data["name"],
-                        data["host"],
-                        data["user"],
-                        data["port"],
-                        data["pem_path"],
-                        data["remarks"],
-                        data["color"],
-                    ),
-                )
+                self.db.create_connection(data)
                 self._refresh_list()
                 InfoBar.success(
                     "Success", "Connection added", duration=2000, parent=self.window()
@@ -1825,9 +1897,7 @@ class SSHManagerWidget(QWidget):
                 )
 
     def _on_scp_clicked(self, conn_id):
-        conn = self.db.fetchone(
-            "SELECT * FROM ssh_connections WHERE id = ?", (conn_id,)
-        )
+        conn = self.db.get_connection(conn_id)
         if not conn:
             return
 
@@ -1838,47 +1908,17 @@ class SSHManagerWidget(QWidget):
         dialog.exec()
 
     def _on_edit_clicked(self, conn_id):
-        conn = self.db.fetchone(
-            "SELECT * FROM ssh_connections WHERE id = ?", (conn_id,)
-        )
+        conn = self.db.get_connection(conn_id)
         if not conn:
             return
 
-        if isinstance(conn, dict):
-            data = dict(conn)  # Ensure it's a mutable dict for safety
-        else:
-            # Based on updated schema: id=0, name=1, host=2, user=3, port=4, pem=5, remarks=6, color=7
-            data = {
-                "name": conn[1],
-                "host": conn[2],
-                "user": conn[3],
-                "port": conn[4],
-                "pem_path": conn[5],
-                "remarks": conn[6],
-                "color": conn[7] if len(conn) > 7 else None,
-            }
+        data = dict(conn)
 
         dialog = SSHConnectionDialog(self.window(), data=data, keys_dir=self.keys_dir)
         if dialog.exec():
             new_data = dialog.get_data()
             if dialog.validate():
-                self.db.execute(
-                    """
-                    UPDATE ssh_connections 
-                    SET name=?, host=?, user=?, port=?, pem_path=?, remarks=?, color=?
-                    WHERE id=?
-                    """,
-                    (
-                        new_data["name"],
-                        new_data["host"],
-                        new_data["user"],
-                        new_data["port"],
-                        new_data["pem_path"],
-                        new_data["remarks"],
-                        new_data["color"],
-                        conn_id,
-                    ),
-                )
+                self.db.update_connection(conn_id, new_data)
                 self._refresh_list()
                 InfoBar.success(
                     "Success", "Connection updated", duration=2000, parent=self.window()
@@ -1886,7 +1926,7 @@ class SSHManagerWidget(QWidget):
 
     def _on_delete_clicked(self, conn_id):
         # Could add a confirmation dialog here
-        self.db.execute("DELETE FROM ssh_connections WHERE id = ?", (conn_id,))
+        self.db.delete_connection(conn_id)
         self._refresh_list()
         InfoBar.success(
             "Success", "Connection deleted", duration=2000, parent=self.window()

@@ -3,6 +3,8 @@ Settings Manager - Core system component for managing application settings.
 This is NOT a plugin, but a built-in system feature.
 """
 
+import copy
+
 from PySide6.QtCore import QObject, QPoint, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
@@ -40,7 +42,6 @@ class SettingsManager(QObject):
             "sidebar_height_percent": 0.8,  # 0.2 to 1.0
             "sidebar_hidden_height_percent": 0.8,  # 0.2 to 1.0
             "sidebar_y_offset": 0,  # pixels from center
-            "max_plugins_count": 0,  # 0 means no limit
         },
         "plugins": {
             "enabled": [],  # List of enabled plugin IDs
@@ -103,7 +104,7 @@ class SettingsManager(QObject):
 
     def get_all_settings(self):
         """Get all settings as a dictionary."""
-        return self.settings.copy()
+        return copy.deepcopy(self.settings)
 
     def reset_to_defaults(self):
         """Reset all settings to defaults."""

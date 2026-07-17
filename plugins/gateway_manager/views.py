@@ -1034,14 +1034,11 @@ class GatewayManagerWidget(QWidget):
             if not dialog.validate():
                 self._show_validation_error("服务名称和有效目标地址不能为空")
                 return
-            self.db.execute(
-                "INSERT INTO services (name, target_url, enabled, remarks) VALUES (?, ?, ?, ?)",
-                (data["name"], data["target_url"], data["enabled"], data["remarks"]),
-            )
+            self.db.save_service(data)
             self._after_config_change("服务已添加")
 
     def _on_edit_service(self, service_id):
-        row = self.db.fetchone("SELECT * FROM services WHERE id = ?", (service_id,))
+        row = self.db.get_service(service_id)
         if not row:
             return
         dialog = ServiceDialog(self.window(), dict(row))
@@ -1050,16 +1047,13 @@ class GatewayManagerWidget(QWidget):
             if not dialog.validate():
                 self._show_validation_error("服务名称和有效目标地址不能为空")
                 return
-            self.db.execute(
-                "UPDATE services SET name=?, target_url=?, enabled=?, remarks=? WHERE id=?",
-                (data["name"], data["target_url"], data["enabled"], data["remarks"], service_id),
-            )
+            self.db.save_service(data, service_id)
             self._after_config_change("服务已更新")
 
     def _on_delete_service(self, service_id):
         if not self._confirm_delete("删除服务", "确定要删除这个服务吗？相关路由也会一起删除。"):
             return
-        self.db.execute("DELETE FROM services WHERE id = ?", (service_id,))
+        self.db.delete_service(service_id)
         self._after_config_change("服务已删除")
 
     def _on_add_gateway(self):
@@ -1074,7 +1068,7 @@ class GatewayManagerWidget(QWidget):
             self._after_config_change("Router 已添加")
 
     def _on_edit_gateway(self, gateway_id):
-        row = self.db.fetchone("SELECT * FROM gateways WHERE id = ?", (gateway_id,))
+        row = self.db.get_gateway(gateway_id)
         if not row:
             return
         dialog = GatewayDialog(self.window(), dict(row))
@@ -1089,24 +1083,7 @@ class GatewayManagerWidget(QWidget):
 
     def _save_gateway(self, data, gateway_id=None):
         try:
-            port = int(data["listen_port"])
-            if gateway_id is None:
-                self.db.execute(
-                    """
-                    INSERT INTO gateways (name, listen_host, listen_port, enabled, auto_start, remarks)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (data["name"], data["listen_host"], port, data["enabled"], data["auto_start"], data["remarks"]),
-                )
-            else:
-                self.db.execute(
-                    """
-                    UPDATE gateways
-                    SET name=?, listen_host=?, listen_port=?, enabled=?, auto_start=?, remarks=?
-                    WHERE id=?
-                    """,
-                    (data["name"], data["listen_host"], port, data["enabled"], data["auto_start"], data["remarks"], gateway_id),
-                )
+            self.db.save_gateway(data, gateway_id)
             return True
         except Exception as exc:
             InfoBar.error("错误", f"保存 Router 失败：{exc}", parent=self.window(), position=InfoBarPosition.TOP, duration=3000)
@@ -1116,7 +1093,7 @@ class GatewayManagerWidget(QWidget):
         if not self._confirm_delete("删除 Router", "确定要删除这个 Router 吗？相关路由会被删除，关联的 Tunnel 会保留但变为未映射。"):
             return
         self.plugin.stop_gateway(gateway_id)
-        self.db.execute("DELETE FROM gateways WHERE id = ?", (gateway_id,))
+        self.db.delete_gateway(gateway_id)
         self._after_config_change("Router 已删除")
 
     def _on_add_route(self):
@@ -1134,7 +1111,7 @@ class GatewayManagerWidget(QWidget):
             self._after_config_change("分发规则已添加")
 
     def _on_edit_route(self, route_id):
-        row = self.db.fetchone("SELECT * FROM gateway_routes WHERE id = ?", (route_id,))
+        row = self.db.get_route(route_id)
         if not row:
             return
         dialog = RouteDialog(self.db, self.window(), dict(row))
@@ -1149,23 +1126,7 @@ class GatewayManagerWidget(QWidget):
 
     def _save_route(self, data, route_id=None):
         try:
-            if route_id is None:
-                self.db.execute(
-                    """
-                    INSERT INTO gateway_routes (gateway_id, service_id, path_prefix, preserve_host, enabled)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (data["gateway_id"], data["service_id"], data["path_prefix"], data["preserve_host"], data["enabled"]),
-                )
-            else:
-                self.db.execute(
-                    """
-                    UPDATE gateway_routes
-                    SET gateway_id=?, service_id=?, path_prefix=?, preserve_host=?, enabled=?
-                    WHERE id=?
-                    """,
-                    (data["gateway_id"], data["service_id"], data["path_prefix"], data["preserve_host"], data["enabled"], route_id),
-                )
+            self.db.save_route(data, route_id)
             return True
         except Exception as exc:
             InfoBar.error("错误", f"保存分发规则失败：{exc}", parent=self.window(), position=InfoBarPosition.TOP, duration=3000)
@@ -1174,7 +1135,7 @@ class GatewayManagerWidget(QWidget):
     def _on_delete_route(self, route_id):
         if not self._confirm_delete("删除分发规则", "确定要删除这条分发规则吗？"):
             return
-        self.db.execute("DELETE FROM gateway_routes WHERE id = ?", (route_id,))
+        self.db.delete_route(route_id)
         self._after_config_change("分发规则已删除")
 
     def _after_config_change(self, message):
@@ -1191,37 +1152,52 @@ class GatewayManagerWidget(QWidget):
 
 
 class GatewaySidebarWidget(QWidget):
+    """Compact gateway status indicator for a single navigation cell.
+
+    The sidebar can be shorter than a text label or narrower than a horizontal
+    status string.  Keep this widget fixed-size and expose the count through a
+    tooltip instead of allowing its contents to resize the navigation layout.
+    """
+
+    _CELL_SIZE = 40
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._count = 0
-        self._orientation = "vertical"
         self._init_ui()
-
-    def _init_ui(self):
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(0)
-        self.layout.setAlignment(Qt.AlignCenter)
-
-        self.label = StrongBodyLabel("GW\n0", self)
-        self.label.setAlignment(Qt.AlignCenter)
-        self.label.setStyleSheet("font-size: 10px; color: #666666;")
-        self.layout.addWidget(self.label)
-
-    def set_orientation(self, orientation: str):
-        self._orientation = orientation
         self._update_display()
 
+    def _init_ui(self):
+        self.setFixedSize(self._CELL_SIZE, self._CELL_SIZE)
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(4)
+        self.layout.setAlignment(Qt.AlignCenter)
+
+        self.icon = IconWidget(FluentIcon.IOT, self)
+        self.icon.setFixedSize(18, 18)
+        self.statusDot = QWidget(self)
+        self.statusDot.setFixedSize(10, 10)
+        self.layout.addWidget(self.icon)
+        self.layout.addWidget(self.statusDot)
+
+    def set_orientation(self, orientation: str):
+        # The indicator uses the same fixed footprint for all sidebar edges.
+        # Retain the hook so existing sidebar integrations remain compatible.
+        del orientation
+
     def set_count(self, count: int):
+        count = max(0, int(count))
         if self._count == count:
             return
         self._count = count
         self._update_display()
 
     def _update_display(self):
-        if self._orientation == "top":
-            self.label.setText(f"GW: {self._count}")
-        else:
-            self.label.setText(f"GW\n{self._count}")
         color = "#107c10" if self._count > 0 else "#666666"
-        self.label.setStyleSheet(f"font-size: 10px; color: {color};")
+        self.statusDot.setStyleSheet(
+            f"background-color: {color}; border-radius: 5px;"
+        )
+        text = f"Gateway Manager: {self._count} gateway(s) running"
+        self.setToolTip(text)
+        self.setAccessibleName(text)

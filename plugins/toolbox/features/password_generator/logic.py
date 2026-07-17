@@ -1,4 +1,4 @@
-import random
+import secrets
 import string
 
 
@@ -15,6 +15,8 @@ class PasswordGenerator:
         use_upper: bool = True,
         use_lower: bool = True,
     ) -> str:
+        secure_random = secrets.SystemRandom()
+
         if length < 4:
             length = 4  # Minimum length constraint
 
@@ -34,20 +36,20 @@ class PasswordGenerator:
         # Ensure at least one character from each selected category
         password = []
         if use_lower:
-            password.append(random.choice(string.ascii_lowercase))
+            password.append(secure_random.choice(string.ascii_lowercase))
         if use_upper:
-            password.append(random.choice(string.ascii_uppercase))
+            password.append(secure_random.choice(string.ascii_uppercase))
         if use_digits:
-            password.append(random.choice(string.digits))
+            password.append(secure_random.choice(string.digits))
         if use_symbols:
-            password.append(random.choice("!@#$%^&*"))
+            password.append(secure_random.choice("!@#$%^&*"))
 
         # Fill the rest
         while len(password) < length:
-            password.append(random.choice(chars))
+            password.append(secure_random.choice(chars))
 
         # Shuffle to avoid predictable patterns
-        random.shuffle(password)
+        secure_random.shuffle(password)
 
         # Trim to exact length (in case minimum requirements pushed it over, though unlikely with min=4)
         return "".join(password[:length])
