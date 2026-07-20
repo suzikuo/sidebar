@@ -134,7 +134,9 @@ class PluginSettingsUiTest(unittest.TestCase):
                 ),
             ]
         )
-        self.widget = FluentSettingsCard(_SettingsManager(self.manager))
+        self.widget = FluentSettingsCard(
+            _SettingsManager(self.manager), include_advanced=True
+        )
         self.addCleanup(self.widget.close)
 
     def test_status_cards_use_plugin_status_and_native_actions(self):
@@ -201,14 +203,21 @@ class PluginSettingsUiTest(unittest.TestCase):
         self.assertIs(self.widget.shortcut_group, shortcut_group)
 
     @patch("qfluentwidgets.InfoBar.success")
-    @patch("core.settings.fluent_settings_card.QFileDialog.getOpenFileName")
-    def test_import_accepts_atplugin_and_keeps_shortcut_group(self, file_dialog, _):
-        file_dialog.return_value = (r"C:\plugins\sample.atplugin", "")
+    @patch("core.settings.fluent_settings_card.QFileDialog.getOpenFileNames")
+    def test_import_accepts_multiple_packages_and_keeps_shortcut_group(self, file_dialog, _):
+        file_dialog.return_value = (
+            [
+                r"C:\plugins\first.atplugin",
+                r"C:\plugins\second.atplugin",
+            ],
+            "",
+        )
         shortcut_group = self.widget.shortcut_group
 
         self.widget._on_install_plugin()
 
-        self.assertIn(("install", r"C:\plugins\sample.atplugin"), self.manager.calls)
+        self.assertIn(("install", r"C:\plugins\first.atplugin"), self.manager.calls)
+        self.assertIn(("install", r"C:\plugins\second.atplugin"), self.manager.calls)
         self.assertEqual(file_dialog.call_args.args[3], "Agile Tiles Plugin (*.atplugin)")
         self.assertIs(self.widget.shortcut_group, shortcut_group)
 

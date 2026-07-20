@@ -14,5 +14,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "gateway/src/**/*.ts", "gateway/src/**/*.vue"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "gateway/src/**/*.ts", "gateway/src/**/*.vue", "control-center/src/**/*.ts", "control-center/src/**/*.vue"]
 }

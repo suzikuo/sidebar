@@ -150,6 +150,38 @@ class SchedulerLifecycleTest(unittest.TestCase):
         self.assertTrue(queued_task.wait(1))
         self.assertFalse(queued_task_ran.is_set())
 
+    def test_notification_action_subscription_is_scoped_and_cleaned_up(self):
+        class StateStoreStub:
+            def get_plugin_state(self, plugin_id, key, default=None):
+                return default
+
+            def set_plugin_state(self, plugin_id, key, value):
+                return None
+
+        scheduler = PluginScheduler("notification-owner")
+        event_bus = EventBus()
+        context = PluginContext(
+            plugin_id="notification-owner",
+            scheduler=scheduler,
+            event_bus=event_bus,
+            state_store=StateStoreStub(),
+            permissions=["event"],
+        )
+        actions = []
+        context.subscribe_notification_actions(actions.append)
+        event_bus.publish(
+            "plugin.notification-owner.notification_action",
+            {"notification_id": "notice-1", "action_id": "open"},
+        )
+        self.assertEqual(actions, [{"notification_id": "notice-1", "action_id": "open"}])
+        context.close()
+        event_bus.publish(
+            "plugin.notification-owner.notification_action",
+            {"notification_id": "notice-2", "action_id": "open"},
+        )
+        self.assertEqual(len(actions), 1)
+        self.assertTrue(scheduler.shutdown(timeout_ms=1000))
+
 
 class PluginRuntimeLifecycleTest(unittest.TestCase):
     @classmethod

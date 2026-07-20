@@ -31,11 +31,12 @@ except ProcessControlError as error:
     print(f"Agile Tiles restart error [{error.code}]: {error}", file=sys.stderr)
     raise SystemExit(2) from error
 
-from PySide6.QtCore import QObject, Slot  # noqa: E402
-from PySide6.QtGui import QAction, QFont  # noqa: E402
+from PySide6.QtCore import QObject, QTimer, QUrl, Slot  # noqa: E402
+from PySide6.QtGui import QAction, QDesktopServices, QFont  # noqa: E402
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QMenu,
     QSystemTrayIcon,
@@ -54,10 +55,14 @@ from qfluentwidgets import (
 )
 
 from core.api_gateway import ApiRegistry
+from core.control_center.api import ControlCenterApiService
+from core.control_center.catalog import PluginCatalogService
 from core.data_layer.data_service import DataService
 from core.data_layer.path_utils import PathManager
 from core.input_system.shortcut_manager import ShortcutManager
 from core.logger import logger
+from core.notification import NotificationService
+from core.notification.backends.custom import CustomToastBackend
 from core.plugin_system.event_bus import EventBus
 from core.plugin_system.plugin_manager import PluginManager
 from core.settings import SettingsApiService, SettingsManager
@@ -162,7 +167,6 @@ class AgileTilesApp:
 
         self.signals = AppSignals(self)
         self.app = app  # Use the global QApplication
-
         # 0. Set Fluent Theme
         setTheme(Theme.DARK)
         setThemeColor("#FF6B9D")  # Pink accent color
@@ -187,6 +191,19 @@ class AgileTilesApp:
             self.settings_manager,
         )
         self.settings_api.register_routes()
+        self.notification_backend = CustomToastBackend()
+        self.notification_service = NotificationService(
+            {"custom": self.notification_backend},
+            settings_provider=self._notification_settings,
+            default_backend="custom",
+        )
+        self.notification_service.set_ready()
+        self.notification_service.notification_activated.connect(
+            self._on_notification_activated
+        )
+        self.notification_service.notification_action_triggered.connect(
+            self._on_notification_action
+        )
 
         # 2.1 Initialize Shortcut Manager
         self.shortcut_manager = ShortcutManager(self.settings_manager)
@@ -225,6 +242,7 @@ class AgileTilesApp:
             self.event_bus,
             self.state_store,
             self.api_registry,
+            notification_service=self.notification_service,
         )
         self.plugin_manager.plugin_loaded.connect(self._on_plugin_loaded)
         self.plugin_manager.plugin_unloaded.connect(self._on_plugin_unloaded)
@@ -234,19 +252,33 @@ class AgileTilesApp:
 
         self.settings_manager.set_plugin_manager(self.plugin_manager)
 
+        self.plugin_catalog = PluginCatalogService(
+            PathManager.get_official_plugin_package_dirs(),
+            self.plugin_manager,
+        )
+        self.control_center_api = ControlCenterApiService(
+            self.api_registry,
+            self.settings_manager,
+            self.plugin_manager,
+            self.plugin_catalog,
+            version_path=PathManager.get_base_dir() / "VERSION",
+            choose_plugin_package=self._choose_plugin_package,
+            restart_application=self.restart,
+            open_data_directory=self._open_data_directory,
+        )
+        self.control_center_api.register_routes()
+        self.control_center_window = None
+
         # 6. Load Settings and Plugins
         self._setup_navigation()
 
         # 7. Setup Tray Icon
         self.setup_tray()
 
-        # 8. Setup Global Notifications
-        self.event_bus.subscribe("system:notification", self._on_system_notification)
-
-        # 9. Setup Global Shortcuts
+        # 8. Setup Global Shortcuts
         self._setup_shortcuts()
 
-        # 10. Setup Detail View Close Listener
+        # 9. Setup Detail View Close Listener
         self.event_bus.subscribe(
             "system:close_detail", lambda _: self.detail_window.hide_content()
         )
@@ -258,18 +290,20 @@ class AgileTilesApp:
         if plugin_id:
             self._activate_plugin(plugin_id)
 
-    def _on_system_notification(self, data: dict):
-        """Handle system notification events."""
-        title = data.get("title", "Agile Tiles")
-        message = data.get("message", "")
-        # icon = data.get("icon", QSystemTrayIcon.Information) # Default icon
-        # duration = data.get("duration", 3000)
+    def _notification_settings(self):
+        return {
+            "enabled": self.settings_manager.get_setting("notifications", "enabled", True),
+        }
 
-        # Ensure tray icon is available
-        if hasattr(self, "tray_icon") and self.tray_icon.isVisible():
-            self.tray_icon.showMessage(
-                title, message, QSystemTrayIcon.Information, 3000
-            )
+    def _on_notification_activated(self, owner_id: str, notification_id: str):
+        if owner_id in self.plugin_manager.runtime._loaded_plugins:
+            self._activate_plugin(owner_id)
+
+    def _on_notification_action(self, owner_id: str, notification_id: str, action_id: str):
+        self.event_bus.publish(
+            f"plugin.{owner_id}.notification_action",
+            {"notification_id": notification_id, "action_id": action_id},
+        )
 
     def _setup_shortcuts(self):
         """Register global shortcuts."""
@@ -496,6 +530,10 @@ class AgileTilesApp:
         toggle_action.triggered.connect(self._do_toggle_sidebar)
         tray_menu.addAction(toggle_action)
 
+        control_center_action = QAction("控制中心", self.app)
+        control_center_action.triggered.connect(self.open_control_center)
+        tray_menu.addAction(control_center_action)
+
         tray_menu.addSeparator()
 
         restart_action = QAction("Restart", self.app)
@@ -522,6 +560,11 @@ class AgileTilesApp:
             self.detail_window.update_style()
         elif category == "plugins":
             self.plugin_manager.refresh_plugin_state()
+        if self.control_center_window is not None:
+            self.control_center_window.publish_event(
+                "settings.changed",
+                {"category": category, "key": key, "value": value},
+            )
 
     def show_window(self):
         """Show the main window."""
@@ -534,6 +577,36 @@ class AgileTilesApp:
         self.show_window()
         # Navigate to settings in the window
 
+    def open_control_center(self):
+        """Create or activate the single control center window."""
+        if self.control_center_window is None:
+            from core.window_system.control_center import ControlCenterWindow
+
+            self.control_center_window = ControlCenterWindow(
+                self.api_registry,
+                self.state_store,
+                PathManager.get_control_center_web_dir(),
+            )
+            self.control_center_api.set_event_publisher(
+                self.control_center_window.publish_event
+            )
+        self.control_center_window.show_center()
+
+    def _choose_plugin_package(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.control_center_window,
+            "选择插件包",
+            "",
+            "Agile Tiles Plugin (*.atplugin)",
+        )
+        return file_path
+
+    @staticmethod
+    def _open_data_directory():
+        return QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(PathManager.get_app_data_root()))
+        )
+
     def run(self):
         """Start the application."""
         logger.info("Starting application...")
@@ -541,8 +614,6 @@ class AgileTilesApp:
         self.sidebar_window.show()
 
         # Check for plugin errors after showing window
-        from PySide6.QtCore import QTimer
-
         QTimer.singleShot(500, self._check_plugin_errors)
 
         return self.app.exec()
@@ -559,9 +630,17 @@ class AgileTilesApp:
         """Shutdown the application."""
         logger.info("Shutting down...")
 
+        if getattr(self, "control_center_window", None) is not None:
+            self.control_center_api.set_event_publisher(None)
+            self.control_center_window.force_close()
+            self.control_center_window = None
+
         # Shutdown plugins
         if hasattr(self, "plugin_manager"):
             self.plugin_manager.shutdown()
+
+        if hasattr(self, "notification_service"):
+            self.notification_service.shutdown()
 
         # Close data service
         if hasattr(self, "data_service"):

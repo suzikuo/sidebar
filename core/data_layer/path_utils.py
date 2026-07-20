@@ -44,32 +44,42 @@ class PathManager:
     @staticmethod
     def get_plugin_search_paths() -> list[Path]:
         """
-        Get plugin roots in ascending priority order.
+        Return the runtime plugin roots.
 
-        Bundled roots are read-only discovery sources. The dedicated AppData
-        user-plugins root is writable and intentionally comes last so it can
-        override a bundled plugin with the same id. Plugin data continues to
-        live separately under AppData/plugins/<id>.
+        Release plugins are standalone packages and become discoverable only
+        after the installer imports them into the AppData user-plugin root.
         """
-        paths = PathManager.get_bundled_plugin_dirs()
-        paths.append(PathManager.get_user_plugins_dir())
-        return paths
+        return [PathManager.get_user_plugins_dir()]
+
+    @staticmethod
+    def get_control_center_web_dir() -> Path:
+        """Return the packaged local web assets for the control center."""
+        return PathManager.get_base_dir() / "ui" / "control_center" / "web"
+
+    @staticmethod
+    def get_official_plugin_package_dirs() -> list[Path]:
+        """Return trusted package catalogs without creating or scanning user paths."""
+        candidates = []
+        if getattr(sys, "frozen", False):
+            candidates.append(Path(sys.executable).resolve().parent / "plugins")
+            candidates.append(PathManager.get_base_dir() / "plugins")
+        else:
+            candidates.append(PathManager.get_base_dir() / "dist" / "plugins")
+
+        result = []
+        seen = set()
+        for candidate in candidates:
+            resolved = candidate.resolve(strict=False)
+            key = os.path.normcase(str(resolved))
+            if key not in seen:
+                result.append(resolved)
+                seen.add(key)
+        return result
 
     @staticmethod
     def get_bundled_plugin_dirs() -> list[Path]:
-        """Return existing read-only plugin roots shipped with the application."""
-        paths = []
-        base_dir = PathManager.get_base_dir()
-
-        bundled_plugins = base_dir / "plugins"
-        if bundled_plugins.exists():
-            paths.append(bundled_plugins)
-
-        internal_plugins = base_dir / "_internal" / "plugins"
-        if internal_plugins.exists() and internal_plugins not in paths:
-            paths.append(internal_plugins)
-
-        return paths
+        """Bundled plugin roots are no longer part of the default distribution."""
+        return []
 
     @staticmethod
     def get_user_plugins_dir() -> Path:

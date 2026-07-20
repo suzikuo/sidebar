@@ -47,6 +47,8 @@ class ShellWindowChromeTest(unittest.TestCase):
 
             self.assertIsInstance(settings, FluentSettingsCard)
             self.assertEqual(settings.objectName(), "FluentSettingsCard")
+            self.assertFalse(settings.include_advanced)
+            self.assertFalse(hasattr(settings, "plugin_group"))
             settings.close()
             self.app.processEvents()
 

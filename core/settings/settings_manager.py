@@ -9,6 +9,8 @@ from PySide6.QtCore import QObject, QPoint, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
+from .settings_schema import get_setting_defaults
+
 
 class SettingsManager(QObject):
     """
@@ -18,39 +20,7 @@ class SettingsManager(QObject):
 
     settings_changed = Signal(str, str, object)  # category, key, value
 
-    # Default settings
-    DEFAULTS = {
-        "general": {
-            "run_on_startup": False,
-            "enable_notifications": True,
-            "auto_hide_delay": 1000,  # milliseconds
-            "trigger_zone_width": 5,  # pixels
-        },
-        "appearance": {
-            "theme_mode": "dark",  # 'light', 'dark', 'system'
-            "sidebar_position": "right",  # 'left', 'right'
-            "sidebar_width": 500,
-            "collapsed_width": 48,
-            "icon_size": 40,
-            "font_family": "Segoe UI",
-            "font_size": 13,
-            "font_weight": "normal",  # 'light', 'normal', 'medium', 'bold'
-            "accent_color": "#FF6B9D",
-            "peek_width": 2,  # 1 to 10 pixels
-            "sidebar_bg_opacity": 0.9,  # 0.1 to 1.0
-            "detail_bg_opacity": 0.9,  # 0.1 to 1.0
-            "sidebar_height_percent": 0.8,  # 0.2 to 1.0
-            "sidebar_hidden_height_percent": 0.8,  # 0.2 to 1.0
-            "sidebar_y_offset": 0,  # pixels from center
-        },
-        "plugins": {
-            "enabled": [],  # List of enabled plugin IDs
-            "disabled": [],  # List of disabled plugin IDs
-        },
-        "shortcuts": {
-            "toggle_sidebar": "alt+space",
-        },
-    }
+    DEFAULTS = get_setting_defaults()
 
     def __init__(self, theme_engine, state_store):
         super().__init__()
@@ -73,6 +43,13 @@ class SettingsManager(QObject):
         for category, values in self.DEFAULTS.items():
             self.settings[category] = {**values, **stored_settings.get(category, {})}
 
+        # The former general toggle remains authoritative for installations that
+        # predate the dedicated notifications category.
+        if "notifications" not in stored_settings:
+            self.settings["notifications"]["enabled"] = stored_settings.get(
+                "general", {}
+            ).get("enable_notifications", True)
+
         # Migrate old settings to new format
         self._migrate_settings()
 
@@ -89,6 +66,7 @@ class SettingsManager(QObject):
             del appearance["sidebar_opacity"]
             self._save_settings()
 
+
     def get_setting(self, category: str, key: str, default=None):
         """Get a specific setting value."""
         return self.settings.get(category, {}).get(key, default)
@@ -102,16 +80,44 @@ class SettingsManager(QObject):
         self._save_settings()
         self.settings_changed.emit(category, key, value)
 
+    def set_settings_batch(self, changes):
+        """Persist a validated group of settings with one state-store write."""
+        for category, key, value in changes:
+            if category not in self.settings:
+                self.settings[category] = {}
+            self.settings[category][key] = copy.deepcopy(value)
+        self._save_settings()
+        for category, key, value in changes:
+            self.settings_changed.emit(category, key, value)
+
     def get_all_settings(self):
         """Get all settings as a dictionary."""
         return copy.deepcopy(self.settings)
 
     def reset_to_defaults(self):
         """Reset all settings to defaults."""
-        self.settings = {}
-        for category, values in self.DEFAULTS.items():
-            self.settings[category] = values.copy()
+        previous = self.get_all_settings()
+        self.settings = copy.deepcopy(self.DEFAULTS)
         self._save_settings()
+        self._emit_setting_differences(previous, self.settings)
+
+    def reset_category(self, category):
+        if category not in self.DEFAULTS:
+            raise KeyError(category)
+        previous = copy.deepcopy(self.settings.get(category, {}))
+        self.settings[category] = copy.deepcopy(self.DEFAULTS[category])
+        self._save_settings()
+        self._emit_setting_differences(
+            {category: previous},
+            {category: self.settings[category]},
+        )
+
+    def _emit_setting_differences(self, before, after):
+        for category, values in after.items():
+            previous = before.get(category, {})
+            for key, value in values.items():
+                if previous.get(key) != value:
+                    self.settings_changed.emit(category, key, value)
 
     def _save_settings(self):
         """Save settings to state store."""

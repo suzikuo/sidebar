@@ -45,6 +45,7 @@ class PluginManager(QObject):
         user_plugins_dir: str | None = None,
         transaction_root: str | None = None,
         host_environment: HostEnvironment | None = None,
+        notification_service=None,
     ):
         super().__init__()
         self.user_plugins_dir = self._normalize_path(
@@ -60,7 +61,12 @@ class PluginManager(QObject):
         self.event_bus = event_bus
         self.state_store = state_store
         self.api_registry = api_registry or ApiRegistry()
-        self.runtime = PluginRuntime(event_bus, state_store, self.api_registry)
+        self.runtime = PluginRuntime(
+            event_bus,
+            state_store,
+            self.api_registry,
+            notification_service=notification_service,
+        )
         self._pending_updates_prepared = False
         self._user_plugins_available = True
         self._update_results = []
@@ -644,15 +650,28 @@ class PluginManager(QObject):
         """Return semantic plugin management state without paths or raw metadata."""
 
         transactions_by_plugin = {}
+        active_transaction_plugin_ids = set()
+        visible_transaction_states = {
+            "pending",
+            "applying",
+            "rollback_pending",
+            "rolling_back",
+            "failed",
+        }
         if self.installer is not None:
             all_transactions = self.installer.list_transactions()
             for plugin_id in {item.plugin_id for item in all_transactions}:
-                transactions_by_plugin[plugin_id] = self.installer.list_transactions(
+                transactions = self.installer.list_transactions(
                     plugin_id=plugin_id
                 )
+                transactions_by_plugin[plugin_id] = transactions
+                if any(
+                    item.state in visible_transaction_states for item in transactions
+                ):
+                    active_transaction_plugin_ids.add(plugin_id)
 
         plugin_ids = set(self._manifests)
-        plugin_ids.update(transactions_by_plugin)
+        plugin_ids.update(active_transaction_plugin_ids)
         plugin_ids.update(self._compatibility_errors)
         plugin_ids.update(self._get_user_plugin_ids())
         ordered_ids = [
@@ -669,7 +688,14 @@ class PluginManager(QObject):
                 "kind", "not-installed"
             )
             transactions = transactions_by_plugin.get(plugin_id, [])
-            latest = transactions[0] if transactions else None
+            latest = next(
+                (
+                    item
+                    for item in transactions
+                    if item.state in visible_transaction_states
+                ),
+                None,
+            )
             rollback_candidate = self._find_rollback_candidate(transactions)
             user_present, user_version = self._get_user_plugin_state(plugin_id)
             update_error = self._update_errors.get(plugin_id, {}).get("message")
@@ -773,7 +799,7 @@ class PluginManager(QObject):
         self.runtime.load_errors[plugin_id] = error
 
     def install_plugin(self, file_path: str) -> tuple[bool, str]:
-        """Validate a plugin package and queue it for the next application start."""
+        """Validate and queue one package without blocking other plugin IDs."""
         if self.installer is None:
             return False, self._installer_unavailable_message()
         if not os.path.exists(file_path):
@@ -791,7 +817,6 @@ class PluginManager(QObject):
 
         allow_legacy_zip = ext == ".zip"
         try:
-            self._ensure_no_pending_plugin_change()
             transaction = self.installer.import_package(
                 file_path,
                 allow_legacy_zip=allow_legacy_zip,
@@ -803,7 +828,7 @@ class PluginManager(QObject):
             return (
                 True,
                 f"Plugin {transaction.plugin_id} {transaction.version} is queued. "
-                "Restart Agile Tiles to apply the update.",
+                "Restart Agile Tiles once after importing all packages.",
             )
         except PluginInstallerError as exc:
             logger.error("Failed to queue plugin package: %s", exc, exc_info=True)
@@ -915,14 +940,13 @@ class PluginManager(QObject):
         )
 
     def queue_uninstall_plugin(self, plugin_id: str) -> tuple[bool, str]:
-        """Queue removal of a user override for the next application start."""
+        """Queue removal without blocking changes for other plugin IDs."""
         if self.installer is None:
             return False, self._installer_unavailable_message()
         user_present, _ = self._get_user_plugin_state(plugin_id)
         if not user_present:
             return False, "No user-installed plugin version is available to uninstall."
         try:
-            self._ensure_no_pending_plugin_change()
             self._preflight_plugin_change(
                 plugin_id,
                 self._uninstall_replacement_manifest(plugin_id),
@@ -931,7 +955,8 @@ class PluginManager(QObject):
             transaction = self.installer.stage_uninstall(plugin_id)
             return (
                 True,
-                f"Plugin {transaction.plugin_id} removal is queued. Restart to apply it.",
+                f"Plugin {transaction.plugin_id} removal is queued. "
+                "Restart once after queuing all changes.",
             )
         except PluginInstallerError as exc:
             return False, f"Plugin uninstall error [{exc.code}]: {exc}"

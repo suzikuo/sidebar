@@ -1,0 +1,22 @@
+{
+    "manifest_version": 2,
+    "id": "time",
+    "name": "Time",
+    "version": "1.0.0",
+    "description": "Customizable clock and time settings.",
+    "author": "Antigravity",
+    "entry": "plugin.py",
+    "class": "TimePlugin",
+    "api_version": "1.0",
+    "permissions": [
+        "state",
+        "settings"
+    ],
+    "compatibility": {"app": ">=1.0.0", "python_abi": "cp311", "platform": "win_amd64"},
+    "dependencies": {"host": ["PySide6==6.10.2", "PySide6-Fluent-Widgets==1.11.0"], "python": [], "plugins": {}},
+    "files": {},
+    "native_modules": [],
+    "requires_restart": false,
+    "ui": {"type": "native"},
+    "capabilities": []
+}

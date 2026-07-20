@@ -3,16 +3,19 @@ import runpy
 import shutil
 import tempfile
 import unittest
+import warnings
 from importlib import metadata
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from PyInstaller.building.datastruct import TOC
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from PyInstaller.utils.hooks import copy_metadata
 
 from core.plugin_system.host_environment import HOST_DISTRIBUTIONS
+from build_support.pyinstaller_pruning import prune_qt_binaries, prune_qt_data
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -25,10 +28,7 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
             name: [(f"{name}.dist-info", f"{name}.dist-info")]
             for name in HOST_DISTRIBUTIONS
         }
-        tree_entries = {
-            "plugins": [("plugins/sample.py", "plugins/sample.py", "DATA")],
-            "ui": [("ui/widget.py", "ui/widget.py", "DATA")],
-        }
+        tree_entries = {"ui": [("ui/widget.py", "ui/widget.py", "DATA")]}
 
         def analysis(*args, **kwargs):
             captured["datas"] = tuple(kwargs["datas"])
@@ -80,10 +80,10 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         collected_all.assert_not_called()
         collected_data.assert_called_once_with("qfluentwidgets")
         collected_binaries.assert_called_once_with("qfluentwidgets")
-        collected_submodules.assert_called_once_with("qfluentwidgets")
+        collected_submodules.assert_not_called()
         self.assertEqual(
             [call.args[0] for call in collected_tree.call_args_list],
-            ["plugins", "ui"],
+            ["ui"],
         )
         for call in collected_tree.call_args_list:
             self.assertEqual(
@@ -99,7 +99,9 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         self.assertIn("PySide6.QtWebChannel", captured["hiddenimports"])
         self.assertIn("PySide6.QtWebEngineCore", captured["hiddenimports"])
         self.assertIn("PySide6.QtWebEngineWidgets", captured["hiddenimports"])
-        self.assertIn(("plugins/sample.py", "plugins"), captured["datas"])
+        self.assertFalse(
+            any(destination == "plugins" for _, destination in captured["datas"])
+        )
         self.assertIn(("ui/widget.py", "ui"), captured["datas"])
         self.assertIn(("VERSION", "."), captured["datas"])
         self.assertIn(("fluent-resource", "qfluentwidgets"), captured["datas"])
@@ -116,8 +118,73 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         )
         self.assertEqual(captured["icon"], ["icon.ico"])
 
+    def test_spec_prunes_debug_webengine_assets_and_unused_qt_modules(self):
+        self.assertEqual(
+            prune_qt_data(
+                [
+                    ("PySide6/resources/qtwebengine_devtools_resources.debug.pak", "x", "DATA"),
+                    ("host/qtwebengine_devtools_resources.debug.pak", "x", "DATA"),
+                    ("PySide6/resources/qtwebengine_devtools_resources.pak", "x", "DATA"),
+                    ("PySide6/resources/qtwebengine_resources.pak", "x", "DATA"),
+                    ("PySide6/qml/QtQuick/Controls.qml", "x", "DATA"),
+                    ("PySide6/qml/QtWebEngine/Delegates.qml", "x", "DATA"),
+                    ("PySide6/translations/qtwebengine_locales/fr.pak", "x", "DATA"),
+                    ("PySide6/translations/qtwebengine_locales/zh-CN.pak", "x", "DATA"),
+                    ("PySide6/translations/qtbase_de.qm", "x", "DATA"),
+                    ("PySide6/translations/qtbase_zh_CN.qm", "x", "DATA"),
+                ]
+            ),
+            [
+                ("host/qtwebengine_devtools_resources.debug.pak", "x", "DATA"),
+                ("PySide6/resources/qtwebengine_devtools_resources.pak", "x", "DATA"),
+                ("PySide6/resources/qtwebengine_resources.pak", "x", "DATA"),
+                ("PySide6/qml/QtQuick/Controls.qml", "x", "DATA"),
+                ("PySide6/qml/QtWebEngine/Delegates.qml", "x", "DATA"),
+                ("PySide6/translations/qtwebengine_locales/zh-CN.pak", "x", "DATA"),
+                ("PySide6/translations/qtbase_zh_CN.qm", "x", "DATA"),
+            ],
+        )
+        self.assertEqual(
+            prune_qt_binaries(
+                [
+                    ("PySide6/Qt6Graphs.dll", "x", "BINARY"),
+                    ("PySide6/Qt6Quick.dll", "x", "BINARY"),
+                ]
+            ),
+            [("PySide6/Qt6Quick.dll", "x", "BINARY")],
+        )
+
+    def test_pruning_preserves_non_list_entry_container(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            binary_entries = TOC(
+                [
+                    ("PySide6/Qt6Graphs.dll", "x", "BINARY"),
+                    ("PySide6/Qt6Quick.dll", "x", "BINARY"),
+                ]
+            )
+
+        binaries = prune_qt_binaries(binary_entries)
+        data_entries = (
+            ("PySide6/resources/qtwebengine_resources.debug.pak", "x", "DATA"),
+            ("PySide6/resources/qtwebengine_resources.pak", "x", "DATA"),
+        )
+        datas = prune_qt_data(data_entries)
+
+        self.assertIsInstance(binaries, TOC)
+        self.assertEqual(
+            binaries,
+            [("PySide6/Qt6Quick.dll", "x", "BINARY")],
+        )
+        self.assertIsInstance(datas, tuple)
+        self.assertEqual(
+            datas,
+            (("PySide6/resources/qtwebengine_resources.pak", "x", "DATA"),),
+        )
+
     def test_build_entry_delegates_to_the_reviewed_spec(self):
         namespace = runpy.run_path(str(PROJECT_ROOT / "build.py"))
+        self.assertNotIn("build_plugin_packages", namespace)
 
         with patch("subprocess.run") as run:
             namespace["build"]()

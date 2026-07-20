@@ -20,10 +20,17 @@ class PluginRuntime:
     Ensures the plugin adheres to permissions and resource limits.
     """
 
-    def __init__(self, event_bus: EventBus, state_store=None, api_registry=None):
+    def __init__(
+        self,
+        event_bus: EventBus,
+        state_store=None,
+        api_registry=None,
+        notification_service=None,
+    ):
         self.event_bus = event_bus
         self.state_store = state_store
         self.api_registry = api_registry
+        self.notification_service = notification_service
         self._loaded_plugins: Dict[str, Any] = {}
         self._contexts: Dict[str, PluginContext] = {}
         self._schedulers: Dict[str, PluginScheduler] = {}
@@ -67,6 +74,7 @@ class PluginRuntime:
                 if isinstance(dependencies, dict)
                 else ()
             ),
+            notification_service=self.notification_service,
         )
         self._contexts[plugin_id] = context
         is_v2_plugin = manifest.get("manifest_version") == 2

@@ -1,0 +1,22 @@
+{
+    "manifest_version": 2,
+    "id": "bookmarks.card",
+    "name": "Bookmarks",
+    "description": "书签管理",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "entry": "plugin.py",
+    "class": "BookmarksPlugin",
+    "permissions": [
+        "ui"
+    ],
+    "api_version": "1.0",
+    "db_schema_version": 1,
+    "compatibility": {"app": ">=1.0.0", "python_abi": "cp311", "platform": "win_amd64"},
+    "dependencies": {"host": ["PySide6==6.10.2", "PySide6-Fluent-Widgets==1.11.0"], "python": [], "plugins": {}},
+    "files": {},
+    "native_modules": [],
+    "requires_restart": false,
+    "ui": {"type": "native"},
+    "capabilities": []
+}

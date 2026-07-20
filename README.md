@@ -71,10 +71,8 @@ sidebar/
 │   ├── data_layer/         # 数据层
 │   │   └── data_service.py     # 数据服务
 │   └── state_store.py      # 状态持久化
-├── plugins/                # 插件目录
-│   ├── gateway_manager/    # 网关管理
-│   ├── ssh_manager/        # SSH/SFTP 管理
-│   └── toolbox/            # 开发工具箱
+├── plugins1/               # 官方插件包源码（不内置进宿主发布包）
+├── build_plugins.py        # 批量生成独立 .atplugin
 └── ui/                     # UI 组件
     └── components/         # 公共组件
 ```
@@ -92,8 +90,8 @@ from qfluentwidgets import setTheme, Theme, setThemeColor
 ```
 
 #### 2. PluginManager - 插件管理器
-- 自动发现 `plugins/` 目录下的插件
-- 用户插件安装在 AppData，不覆盖 bundled 目录
+- 默认只发现 AppData `user-plugins/` 下已安装的插件
+- 仓库 `plugins1/` 是打包源码，不作为正式发布的内置插件目录
 - 根据 manifest 前置依赖拓扑加载插件
 - 管理安装、更新、启停、回滚和卸载事务
 
@@ -101,6 +99,7 @@ from qfluentwidgets import setTheme, Theme, setThemeColor
 - `SidebarWindow` 是无系统标题栏的主入口，支持顶部/左侧/右侧布局
 - 插件位于可滚动区，Settings 固定在末端
 - `DetailWindow` 承载各插件原生详情界面
+- `ControlCenterWindow` 是从托盘右键打开的独立前端管理窗口，负责完整设置、插件管理、官方市场和诊断
 
 #### 4. SettingsManager - 设置管理器
 - 管理应用设置的持久化
@@ -111,8 +110,8 @@ from qfluentwidgets import setTheme, Theme, setThemeColor
 
 ## 核心功能
 
-### 1. 内置插件与功用介绍
-Agile Tiles 基于插件化架构，内置了多款开箱即用的实用效率和开发组件：
+### 1. 官方插件包与功用介绍
+Agile Tiles 基于插件化架构，以下功能以独立 `.atplugin` 提供，可按需安装：
 
 - ⏱️ **Time (时钟与倒计时)**：一个优雅的侧边栏时钟挂件，支持添加与管理闹钟任务。特别提供 **桌面悬浮时钟** 模式，并且可以在到达闹铃设定前5分钟无缝切换成显眼的倒计时，挂件支持穿透防误触、无边框与自适应拖拽定位。
 - 📖 **ThiefBook (摸鱼阅读器)**：采用类似“桌面歌词”悬浮窗设计的 txt 阅读器插件。支持热键翻页、老板键快捷隐藏；支持自定义样式大小，并且在调整配置时搭载了绝对进度锚点算法，保证缩放文本不丢进度。
@@ -155,7 +154,14 @@ class TodoPlugin(PluginBase):
         return self._build_ui()
 ```
 
-### 4. 设置界面
+### 4. 快速设置与控制中心
+
+- 侧边栏 Settings 只保留主题、侧边栏行为和通知等高频快速配置。
+- 托盘图标右键选择“控制中心”，可进入完整设置、已安装插件、官方市场和关于/诊断页面。
+- 官方市场读取发行版随附且经过校验的 `.atplugin` 包；安装、更新、卸载和回滚继续遵循现有事务与重启语义。
+- 控制中心是本地 Vue 页面，通过受限 QWebChannel API 调用 Python，不启动本地 HTTP 服务，也不向前端暴露插件包路径。
+
+原生快速设置使用 `SettingCardGroup` 组织设置项：
 使用 `SettingCardGroup` 组织设置项：
 ```python
 # 创建设置组
@@ -182,7 +188,23 @@ push_card = PushSettingCard(
 
 ## 插件开发
 
-正式插件使用 manifest v2 `.atplugin`。模板、打包、安装、数据边界和当前依赖限制见 [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md)。
+正式插件使用 manifest v2 `.atplugin`。批量构建仓库中的全部官方插件：
+
+```powershell
+python .\build_plugins.py
+```
+
+输出位于 `dist/plugins/`。这些包是独立插件介质，不会被 `python .\build.py` 复制到宿主目录；可以通过控制中心“官方市场”目录或“导入插件包”安装。应用不会从宿主发布目录静默安装。模板、单包打包、安装、数据边界和当前依赖限制见 [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md)。
+
+宿主与插件的构建命令分开：
+
+```powershell
+# 只构建 Agile Tiles 宿主
+python .\build.py
+
+# 单独生成插件包（可选）
+python .\build_plugins.py
+```
 
 ---
 

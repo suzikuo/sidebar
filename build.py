@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 def build():
-    """Build the reviewed onedir release from the single spec source."""
+    """Build only the host application from the reviewed spec source."""
     command = [
         sys.executable,
         "-m",

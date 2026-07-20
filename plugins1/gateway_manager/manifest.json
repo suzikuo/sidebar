@@ -1,0 +1,23 @@
+{
+    "manifest_version": 2,
+    "id": "gateway_manager",
+    "name": "Gateway Manager",
+    "description": "Local async path gateway and reverse proxy manager",
+    "version": "1.0.0",
+    "author": "Codex",
+    "entry": "plugin.py",
+    "class": "GatewayManagerPlugin",
+    "permissions": [
+        "ui",
+        "db"
+    ],
+    "api_version": "1.0",
+    "compatibility": {"app": ">=1.0.0", "python_abi": "cp311", "platform": "win_amd64"},
+    "dependencies": {"host": ["PySide6==6.10.2", "PySide6-Fluent-Widgets==1.11.0", "aiohttp==3.14.1"], "python": [], "plugins": {}},
+    "db_schema_version": 1,
+    "files": {},
+    "native_modules": [],
+    "requires_restart": false,
+    "ui": {"type": "web", "entry": "web/index.html"},
+    "capabilities": []
+}

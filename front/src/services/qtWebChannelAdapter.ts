@@ -12,6 +12,7 @@ interface PendingRequest {
 let requestSequence = 0
 let apiPromise: Promise<AgileApiObject> | null = null
 const pendingRequests = new Map<string, PendingRequest>()
+const eventSubscribers = new Map<string, Set<(payload: unknown) => void>>()
 
 function fail<T>(code: string, message: string): ApiResult<T> {
   return { ok: false, code, message }
@@ -41,6 +42,18 @@ function handleResponse(id: string, resultJson: string): void {
   }
 }
 
+function handleEvent(eventName: string, payloadJson: string): void {
+  const subscribers = eventSubscribers.get(eventName)
+  if (!subscribers?.size) return
+  let payload: unknown = {}
+  try {
+    payload = JSON.parse(payloadJson)
+  } catch {
+    return
+  }
+  for (const subscriber of subscribers) subscriber(payload)
+}
+
 async function resolveApi(): Promise<AgileApiObject> {
   if (apiPromise) return apiPromise
 
@@ -67,6 +80,7 @@ async function resolveApi(): Promise<AgileApiObject> {
       }
 
       api.response_ready.connect(handleResponse)
+      api.event_ready.connect(handleEvent)
       window.clearTimeout(timeoutId)
       resolve(api)
     })
@@ -110,6 +124,16 @@ export const qtWebChannelAdapter: PlatformAdapter = {
         'BRIDGE_NOT_READY',
         error instanceof Error ? error.message : String(error),
       )
+    }
+  },
+  subscribe(eventName, callback) {
+    const subscribers = eventSubscribers.get(eventName) ?? new Set()
+    subscribers.add(callback)
+    eventSubscribers.set(eventName, subscribers)
+    void resolveApi().catch(() => undefined)
+    return () => {
+      subscribers.delete(callback)
+      if (!subscribers.size) eventSubscribers.delete(eventName)
     }
   },
 }

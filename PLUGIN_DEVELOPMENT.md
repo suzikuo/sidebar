@@ -72,6 +72,26 @@ from .views import MyPluginWidget
 
 以 `templates/hello_plugin/plugin.py` 为可运行示例。后台任务、计时器、事件和通知优先通过 `self.context` 创建，以便卸载时统一清理。
 
+后台完成、闹钟和用户离开当前页面后仍需看到的结果，使用作用域化通知客户端：
+
+```python
+self.context.notifications.show(
+    title="视频生成完成",
+    message="点击打开结果",
+    duration_ms=4000,
+)
+```
+
+`show()` 默认展示标准卡片。需要更简洁的摘要时传入
+`presentation=NotificationPresentation.COMPACT`；需要更宽、更完整的信息时传入
+`presentation=NotificationPresentation.DETAILED`。传入
+`transparent_background=True` 可使用半透明玻璃背景。以上参数均为可选，也可以通过
+`notifications.update(notification_id, ...)` 更新。
+
+通知只能由来源插件更新或关闭。页面内表单错误、即时保存结果和确认操作继续使用当前页面的 `InfoBar` 或对话框；插件不得发布 `system:notification`、直接调用托盘消息，或 import 具体通知 backend。
+
+带动作按钮的通知可通过 `self.context.subscribe_notification_actions(callback)` 接收受控 payload，其中只有 `notification_id` 和 `action_id`。
+
 ## 4. 数据边界
 
 - 少量设置、窗口状态和简单文档数据使用 `self.context.state`。
@@ -124,6 +144,14 @@ dist/my_plugin.atplugin
 
 任何错误都会返回非零退出码，不生成新的正式包。
 
+仓库维护者可以一次构建 `plugins1/` 下的全部 manifest 插件：
+
+```powershell
+python .\build_plugins.py
+```
+
+输出位于 `dist/plugins/<plugin-id>.atplugin`。批量构建会先在临时目录完成全部包的自校验，全部成功后才替换输出目录中的 `.atplugin`，防止失败时留下部分新版本或让已移除插件继续混入发布物。
+
 ## 6. 安装和更新
 
 1. 打开 Agile Tiles 设置。
@@ -131,7 +159,7 @@ dist/my_plugin.atplugin
 3. 选择 `.atplugin`。
 4. 校验成功后重启 Agile Tiles。
 
-更新使用相同 `id` 和新的 `version` 再次导入。安装器只写入 AppData 用户插件目录，不覆盖随主程序发布的 bundled 插件；更新加载失败时会按插件类型回滚或排队重启回滚。
+更新使用相同 `id` 和新的 `version` 再次导入。安装器只写入 AppData 用户插件目录；正式发布不再提供 bundled 插件源码回退。更新加载失败时会按插件类型回滚或排队重启回滚。
 
 设置页会显示来源、版本、加载/阻断、pending 和错误状态，并提供取消 pending、卸载用户版与安全回滚操作。
 
@@ -141,7 +169,7 @@ dist/my_plugin.atplugin
 - 不支持含 managed third-party wheel 的插件。
 - 独立 `.pyd` 不是插件；原生模块必须放进 `.atplugin` 并由 `.py` bootstrap 导入。
 - `.pyd` 的静态 ABI/PE 校验已经存在；真实第三方 `.pyd` 加载仍需按目标 ABI/DLL 单独验收。
-- `ui.type=web` 仍是可选 POC，当前生产运行时不会自动承载 React/Vue 插件页面。
+- `ui.type=web` 的静态入口必须包含在包内并通过文件哈希校验；具体承载方式仍由插件 bootstrap 和宿主 Web UI 能力决定。
 - 插件运行在主进程，不是安全沙箱，只安装自己编写或可信来源的包。
 
 ## 8. 构建主程序
@@ -152,4 +180,4 @@ dist/my_plugin.atplugin
 python .\build.py
 ```
 
-它委托 `AgileTiles.spec` 生成 `dist/AgileTiles` onedir。普通纯 Python 插件更新不需要重新构建这个目录。
+`build.py` 只委托 `AgileTiles.spec` 生成 `dist/AgileTiles` onedir，不再向宿主目录复制插件包。`build_plugins.py` 单独将 `plugins1/` 下的全部插件打成 `dist/plugins/*.atplugin`。spec 不收集 `plugins1/` 插件源码树；插件包是可选安装介质，不会被默认发现或自动安装。普通纯 Python 插件更新只需运行 `build_plugins.py`，不需要重新构建宿主。

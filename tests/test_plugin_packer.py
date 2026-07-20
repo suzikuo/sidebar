@@ -67,7 +67,7 @@ class PluginPackerTest(unittest.TestCase):
 
         package_path = build_plugin_package(self.plugin_root, self.root / "output")
 
-        self.assertEqual(package_path.name, "plugin.atplugin")
+        self.assertEqual(package_path.name, "sample_plugin.atplugin")
         inspected = inspect_plugin_package(package_path)
         self.assertEqual(inspected.plugin_id, "sample_plugin")
         with zipfile.ZipFile(package_path, "r") as archive:
@@ -153,7 +153,7 @@ class PluginPackerTest(unittest.TestCase):
             exit_code = main([str(self.plugin_root), "--out", str(self.root / "output")])
         self.assertNotEqual(exit_code, 0)
         self.assertIn("manifest_version 2", stderr.getvalue())
-        self.assertFalse((self.root / "output" / "plugin.atplugin").exists())
+        self.assertFalse((self.root / "output" / "sample_plugin.atplugin").exists())
 
     def test_repository_hello_template_builds_as_strict_v2_package(self):
         template_root = Path(__file__).resolve().parents[1] / "templates" / "hello_plugin"

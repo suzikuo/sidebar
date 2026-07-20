@@ -196,9 +196,8 @@ class PluginStatusTest(unittest.TestCase):
         self.assertTrue(pending.restart_required)
         cancelled, _ = self.manager.cancel_pending_plugin_change("sample_plugin")
         self.assertTrue(cancelled)
-        self.assertEqual(
-            self.manager.get_plugin_status("sample_plugin").transaction.state,
-            "rolled_back",
+        self.assertIsNone(
+            self.manager.get_plugin_status("sample_plugin").transaction
         )
 
     def test_missing_required_plugin_rejects_import_before_transaction(self):
@@ -213,18 +212,82 @@ class PluginStatusTest(unittest.TestCase):
         self.assertIn("PLUGIN_DEPENDENCY_MISSING", message)
         self.assertEqual(self.manager.installer.list_transactions(), [])
 
-    def test_second_plugin_change_waits_for_the_first_restart_boundary(self):
+    def test_different_plugins_can_queue_before_one_restart(self):
         first = self._write_package(plugin_id="first_plugin")
         second = self._write_package(plugin_id="second_plugin")
 
         self.assertTrue(self.manager.install_plugin(str(first))[0])
         success, message = self.manager.install_plugin(str(second))
 
-        self.assertFalse(success)
-        self.assertIn("PLUGIN_CHANGE_PENDING", message)
+        self.assertTrue(success)
+        self.assertIn("Restart Agile Tiles once", message)
         self.assertEqual(
-            [item.plugin_id for item in self.manager.installer.list_transactions()],
-            ["first_plugin"],
+            {item.plugin_id for item in self.manager.installer.list_transactions()},
+            {"first_plugin", "second_plugin"},
+        )
+
+        applied = self.manager.prepare_pending_updates()
+        self.manager.discover_plugins()
+
+        self.assertEqual({item.plugin_id for item in applied}, {"first_plugin", "second_plugin"})
+        self.assertIn("first_plugin", self.manager.get_all_manifests())
+        self.assertIn("second_plugin", self.manager.get_all_manifests())
+
+    def test_same_plugin_still_allows_only_one_pending_change(self):
+        first = self._write_package(version="2.0.0")
+        second = self._write_package(version="3.0.0")
+
+        self.assertTrue(self.manager.install_plugin(str(first))[0])
+        success, message = self.manager.install_plugin(str(second))
+
+        self.assertFalse(success)
+        self.assertIn("PLUGIN_TRANSACTION_PENDING", message)
+        self.assertEqual(len(self.manager.installer.list_transactions()), 1)
+
+    def test_different_plugins_can_queue_uninstall_before_one_restart(self):
+        _write_plugin(self.user, "first_plugin", "1.0.0")
+        _write_plugin(self.user, "second_plugin", "1.0.0")
+        self.manager.discover_plugins()
+
+        self.assertTrue(self.manager.queue_uninstall_plugin("first_plugin")[0])
+        success, message = self.manager.queue_uninstall_plugin("second_plugin")
+
+        self.assertTrue(success)
+        self.assertIn("Restart once", message)
+        self.assertEqual(
+            {
+                item.plugin_id
+                for item in self.manager.installer.list_transactions(
+                    states={"pending"}
+                )
+            },
+            {"first_plugin", "second_plugin"},
+        )
+
+        applied = self.manager.prepare_pending_updates()
+        self.manager.discover_plugins()
+
+        self.assertEqual(
+            {item.plugin_id for item in applied},
+            {"first_plugin", "second_plugin"},
+        )
+        self.assertIsNone(self.manager.get_plugin_status("first_plugin"))
+        self.assertIsNone(self.manager.get_plugin_status("second_plugin"))
+
+    def test_completed_uninstall_without_fallback_has_no_status_tombstone(self):
+        install = self.manager.installer.import_package(self._write_package())
+        self.manager.installer.apply_pending(install.transaction_id)
+        self.manager.discover_plugins()
+        self.assertIsNotNone(self.manager.get_plugin_status("sample_plugin"))
+
+        uninstall = self.manager.installer.stage_uninstall("sample_plugin")
+        self.manager.installer.apply_pending(uninstall.transaction_id)
+        self.manager.discover_plugins()
+
+        self.assertIsNone(self.manager.get_plugin_status("sample_plugin"))
+        self.assertEqual(
+            len(self.manager.installer.list_transactions(plugin_id="sample_plugin")),
+            2,
         )
 
     def test_bundled_only_uninstall_is_rejected_and_applied_update_can_queue_rollback(self):

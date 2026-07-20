@@ -20,6 +20,22 @@ class GatewayWebUiAssetsTest(unittest.TestCase):
         self.assertNotIn("http://", html)
         self.assertNotIn("https://", html)
 
+    def test_gateway_plugin_is_web_only_without_native_fallback(self):
+        plugin = (
+            PROJECT_ROOT / "plugins" / "gateway_manager" / "plugin.py"
+        ).read_text(encoding="utf-8")
+        web_view = (
+            PROJECT_ROOT / "plugins" / "gateway_manager" / "web_view.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("gateway_manager.views", plugin)
+        self.assertNotIn("GatewayManagerWidget", plugin)
+        self.assertNotIn("native_factory", web_view)
+        self.assertNotIn("_show_native", web_view)
+        self.assertFalse(
+            (PROJECT_ROOT / "plugins" / "gateway_manager" / "views.py").exists()
+        )
+
     def test_components_use_one_typed_api_boundary(self):
         source = PROJECT_ROOT / "front" / "gateway" / "src"
         api = (source / "gatewayApi.ts").read_text(encoding="utf-8")

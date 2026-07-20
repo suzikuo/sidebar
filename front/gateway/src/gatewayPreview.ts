@@ -47,4 +47,7 @@ export const gatewayPreviewAdapter: PlatformAdapter = {
     }
     return ok(clone()) as ApiResult<T>
   },
+  subscribe() {
+    return () => undefined
+  },
 }

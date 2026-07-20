@@ -4,6 +4,8 @@ Uses PySide6-Fluent-Widgets components
 Only uses components that work without ConfigItem
 """
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
@@ -33,9 +35,10 @@ class FluentSettingsCard(QWidget):
 
     theme_changed = Signal(str)
 
-    def __init__(self, settings_manager):
+    def __init__(self, settings_manager, *, include_advanced=False):
         super().__init__()
         self.settings_manager = settings_manager
+        self.include_advanced = include_advanced
         self.setObjectName("FluentSettingsCard")
         self._init_ui()
 
@@ -90,11 +93,11 @@ class FluentSettingsCard(QWidget):
             FluentIcon.MESSAGE, "启用通知", "显示系统通知提醒", parent=general_group
         )
         self.notify_card.switchButton.setChecked(
-            self.settings_manager.get_setting("general", "enable_notifications", True)
+            self.settings_manager.get_setting("notifications", "enabled", True)
         )
         self.notify_card.switchButton.checkedChanged.connect(
             lambda checked: self.settings_manager.set_setting(
-                "general", "enable_notifications", checked
+                "notifications", "enabled", checked
             )
         )
         general_group.addSettingCard(self.notify_card)
@@ -270,50 +273,42 @@ class FluentSettingsCard(QWidget):
 
         content_layout.addWidget(appearance_group)
 
-        # === Storage Settings Group ===
-        storage_group = SettingCardGroup("数据与存储", self)
+        if self.include_advanced:
+            storage_group = SettingCardGroup("数据与存储", self)
+            self.open_appdata_card = PushSettingCard(
+                "打开目录",
+                FluentIcon.FOLDER,
+                "应用数据目录",
+                "打开 Agile Tiles 存放配置和数据库的 AppData 目录",
+                parent=storage_group,
+            )
+            self.open_appdata_card.clicked.connect(self._open_appdata_dir)
+            storage_group.addSettingCard(self.open_appdata_card)
+            content_layout.addWidget(storage_group)
 
-        self.open_appdata_card = PushSettingCard(
-            "打开目录",
-            FluentIcon.FOLDER,
-            "应用数据目录",
-            "打开 Agile Tiles 存放配置和数据库的 AppData 目录",
-            parent=storage_group,
-        )
-        self.open_appdata_card.clicked.connect(self._open_appdata_dir)
-        storage_group.addSettingCard(self.open_appdata_card)
+            self._add_plugin_group(content_layout)
 
-        content_layout.addWidget(storage_group)
+            about_group = SettingCardGroup("关于", self)
+            self.version_card = PushSettingCard(
+                "检查更新",
+                FluentIcon.INFO,
+                "Agile Tiles",
+                "版本 1.0.0 - Modern Desktop Productivity",
+                parent=about_group,
+            )
+            self.version_card.clicked.connect(self._check_updates)
+            about_group.addSettingCard(self.version_card)
 
-        # === Plugins Group ===
-        self._add_plugin_group(content_layout)
-
-        # === About Section ===
-        about_group = SettingCardGroup("关于", self)
-
-        # Version info
-        self.version_card = PushSettingCard(
-            "检查更新",
-            FluentIcon.INFO,
-            "Agile Tiles",
-            "版本 1.0.0 - Modern Desktop Productivity",
-            parent=about_group,
-        )
-        self.version_card.clicked.connect(self._check_updates)
-        about_group.addSettingCard(self.version_card)
-
-        # Reset settings
-        self.reset_card = PushSettingCard(
-            "重置",
-            FluentIcon.SYNC,
-            "重置设置",
-            "将所有设置恢复为默认值",
-            parent=about_group,
-        )
-        self.reset_card.clicked.connect(self._reset_settings)
-        about_group.addSettingCard(self.reset_card)
-
-        content_layout.addWidget(about_group)
+            self.reset_card = PushSettingCard(
+                "重置",
+                FluentIcon.SYNC,
+                "重置设置",
+                "将所有设置恢复为默认值",
+                parent=about_group,
+            )
+            self.reset_card.clicked.connect(self._reset_settings)
+            about_group.addSettingCard(self.reset_card)
+            content_layout.addWidget(about_group)
 
         # Add stretch at bottom
         content_layout.addStretch(1)
@@ -613,18 +608,31 @@ class FluentSettingsCard(QWidget):
 
     def _on_install_plugin(self):
         """Handle plugin installation."""
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "选择插件包",
+            "选择一个或多个插件包",
             "",
             "Agile Tiles Plugin (*.atplugin)",
         )
 
-        if not file_path:
+        if not file_paths:
             return
 
-        success, message = self.settings_manager.plugin_manager.install_plugin(file_path)
-        self._show_plugin_result(success, message)
+        results = [
+            (
+                Path(file_path).name,
+                *self.settings_manager.plugin_manager.install_plugin(file_path),
+            )
+            for file_path in file_paths
+        ]
+        succeeded = sum(1 for _, success, _ in results if success)
+        messages = "\n".join(
+            f"{name}: {message}" for name, _, message in results
+        )
+        self._show_plugin_result(
+            succeeded == len(results),
+            f"已处理 {succeeded}/{len(results)} 个插件。\n{messages}",
+        )
         self._refresh_plugin_group()
 
     def _add_plugin_group(self, layout):
@@ -689,7 +697,7 @@ class FluentSettingsCard(QWidget):
             "选择文件",
             FluentIcon.ADD,
             "添加插件",
-            "导入 .atplugin 包；验证后将在下次启动时安装或更新",
+            "可多选 .atplugin；全部导入后只需重启一次",
             parent=self.plugin_group,
         )
         self.install_plugin_card.clicked.connect(self._on_install_plugin)
@@ -756,7 +764,7 @@ class FluentSettingsCard(QWidget):
                     tooltip,
                     lambda _, p=pid, n=status.name: self._confirm_plugin_action(
                         "确认卸载",
-                        f"卸载 {n} 的用户版本？变更将在重启后生效。",
+                        f"卸载 {n} 的用户版本？可继续处理其他插件，最后重启一次。",
                         manager.queue_uninstall_plugin,
                         p,
                     ),

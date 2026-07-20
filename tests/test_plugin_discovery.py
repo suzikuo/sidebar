@@ -97,7 +97,7 @@ def _write_v2_package(
 
 
 class PathManagerPluginPathsTest(unittest.TestCase):
-    def test_search_paths_are_bundled_then_writable_user_root(self):
+    def test_search_paths_ignore_release_plugin_packages_until_installed(self):
         with tempfile.TemporaryDirectory() as tmp:
             temp_root = Path(tmp)
             base_dir = temp_root / "app"
@@ -113,7 +113,7 @@ class PathManagerPluginPathsTest(unittest.TestCase):
                 ):
                     paths = PathManager.get_plugin_search_paths()
 
-            self.assertEqual(paths, [bundled, internal, app_data / "user-plugins"])
+            self.assertEqual(paths, [app_data / "user-plugins"])
             self.assertTrue(paths[-1].is_dir())
 
     def test_missing_bundled_roots_are_not_created(self):

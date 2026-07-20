@@ -45,4 +45,7 @@ export const browserPreviewAdapter: PlatformAdapter = {
 
     return fail('ROUTE_NOT_FOUND', '预览环境未实现此 API。')
   },
+  subscribe() {
+    return () => undefined
+  },
 }

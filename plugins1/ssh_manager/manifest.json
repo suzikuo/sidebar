@@ -1,0 +1,23 @@
+{
+    "manifest_version": 2,
+    "id": "ssh_manager",
+    "name": "SSH Manager",
+    "description": "SSH管理",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "entry": "plugin.py",
+    "class": "SSHManagerPlugin",
+    "permissions": [
+        "ui",
+        "db"
+    ],
+    "api_version": "1.0",
+    "compatibility": {"app": ">=1.0.0", "python_abi": "cp311", "platform": "win_amd64"},
+    "dependencies": {"host": ["PySide6==6.10.2", "PySide6-Fluent-Widgets==1.11.0", "paramiko==5.0.0"], "python": [], "plugins": {}},
+    "db_schema_version": 1,
+    "files": {},
+    "native_modules": [],
+    "requires_restart": false,
+    "ui": {"type": "native"},
+    "capabilities": []
+}

@@ -36,7 +36,7 @@ def build_plugin_package(plugin_dir, output_dir=".") -> Path:
         raise PluginPackerError("Plugin packages require manifest_version 2.")
 
     destination_root = _prepare_output_directory(output_dir)
-    output_path = destination_root / f"{plugin_root.name}.atplugin"
+    output_path = destination_root / f"{manifest['id']}.atplugin"
     files = _collect_files(plugin_root, output_path)
     manifest["files"] = {relative: digest for relative, _, digest in files}
     _synchronize_native_hashes(manifest, files)
@@ -61,7 +61,9 @@ def build_plugin_package(plugin_dir, output_dir=".") -> Path:
         raise PluginPackerError(f"Cannot write plugin package: {error}") from error
     finally:
         try:
-            temporary_path.unlink(missing_ok=True)
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
         except OSError:
             pass
     return output_path

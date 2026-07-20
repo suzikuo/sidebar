@@ -7,10 +7,12 @@
     "dev": "vite --mode web --host 127.0.0.1",
     "dev:desktop": "vite --mode desktop --host 127.0.0.1",
     "dev:gateway": "vite --mode gateway --host 127.0.0.1",
+    "dev:control-center": "vite --mode control-center-preview --host 127.0.0.1",
     "typecheck": "vue-tsc --noEmit",
     "test": "node --test tests/*.test.ts",
     "build": "npm run typecheck && npm run test && vite build --mode desktop",
     "build:gateway": "npm run typecheck && npm run test && vite build --mode gateway",
+    "build:control-center": "npm run typecheck && npm run test && vite build --mode control-center",
     "build:web": "npm run typecheck && npm run test && vite build --mode web",
     "preview": "vite preview --mode web --host 127.0.0.1"
   },

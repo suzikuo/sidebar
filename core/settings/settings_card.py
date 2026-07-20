@@ -224,12 +224,12 @@ class SettingsCard(QWidget):
         # Notifications
         cb_notify = QCheckBox()
         notify_enabled = self.settings_manager.get_setting(
-            "general", "enable_notifications", True
+            "notifications", "enabled", True
         )
         cb_notify.setChecked(notify_enabled)
         cb_notify.toggled.connect(
             lambda checked: self.settings_manager.set_setting(
-                "general", "enable_notifications", checked
+                "notifications", "enabled", checked
             )
         )
         self.content_layout.addWidget(

@@ -25,6 +25,7 @@ class PluginContext:
         api_registry=None,
         capabilities: list = None,
         required_plugins=(),
+        notification_service=None,
     ):
         self._plugin_id = plugin_id
         self._scheduler = scheduler
@@ -34,6 +35,7 @@ class PluginContext:
         self._api_registry = api_registry
         self._capabilities = frozenset(capabilities or [])
         self._required_plugins = frozenset(required_plugins)
+        self._notification_service = notification_service
         self._db_instance = None
         self._timers = []
         self._async_tasks = set()
@@ -44,6 +46,16 @@ class PluginContext:
     @property
     def plugin_id(self) -> str:
         return self._plugin_id
+
+    @property
+    def notifications(self):
+        """Owner-scoped notification API provided by the host application."""
+        self._ensure_open()
+        if self._notification_service is None:
+            raise RuntimeError("The application notification service is not available.")
+        from core.notification import PluginNotificationClient
+
+        return PluginNotificationClient(self._notification_service, self._plugin_id)
 
     # -- Resource Access --
 
@@ -166,6 +178,13 @@ class PluginContext:
             raise ValueError("Plugin event name cannot be empty.")
         return self.subscribe_event(f"plugin.{plugin_id}.{event}", callback)
 
+    def subscribe_notification_actions(self, callback):
+        """Receive action selections from notifications owned by this plugin."""
+        return self.subscribe_event(
+            f"plugin.{self._plugin_id}.notification_action",
+            callback,
+        )
+
     # -- Data & State Access (Placeholders for now) --
 
     @property
@@ -228,6 +247,8 @@ class PluginContext:
         for token in subscription_tokens:
             self._event_bus.unsubscribe_token(token)
         self._event_bus.unsubscribe_owner(self._plugin_id)
+        if self._notification_service is not None:
+            self._notification_service.dismiss_owner(self._plugin_id)
 
         for timer in timers:
             try:
@@ -270,16 +291,6 @@ class PluginContext:
     def _discard_async_task(self, task):
         with self._resource_lock:
             self._async_tasks.discard(task)
-
-    def send_notification(self, title: str, message: str, **kwargs):
-        """Helper to send a system notification."""
-        # Check permissions if strictness is required, but arguably notifications are harmless enough
-        # or require a basic 'ui' or 'event' permission.
-        # For now, we assume if you have a context, you can notify.
-        self._ensure_open()
-        data = {"title": title, "message": message}
-        data.update(kwargs)
-        self._event_bus.publish("system:notification", data)
 
     def close_detail_view(self):
         """Requests the main application to close any open plugin detail view."""
