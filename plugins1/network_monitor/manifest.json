@@ -1,0 +1,23 @@
+{
+  "manifest_version": 2,
+  "id": "network_monitor",
+  "name": "网络监控",
+  "version": "1.0.0",
+  "description": "显示系统、v2rayN/Xray 代理和直连的实时上下行速率。",
+  "author": "Agile Tiles",
+  "entry": "plugin.py",
+  "class": "NetworkMonitorPlugin",
+  "api_version": "1.0",
+  "permissions": ["state", "ui"],
+  "compatibility": {"app": ">=1.0.0", "python_abi": "cp311", "platform": "win_amd64"},
+  "dependencies": {
+    "host": ["PySide6==6.10.2", "PySide6-Fluent-Widgets==1.11.0"],
+    "python": [],
+    "plugins": {}
+  },
+  "files": {},
+  "native_modules": [],
+  "requires_restart": false,
+  "ui": {"type": "native"},
+  "capabilities": []
+}

@@ -610,7 +610,8 @@ class AgileTilesApp:
     def run(self):
         """Start the application."""
         logger.info("Starting application...")
-        # Start with just the sidebar visible? Or both?
+        # Reveal navigation immediately so the plugin list is available at startup.
+        self.sidebar_window.expand()
         self.sidebar_window.show()
 
         # Check for plugin errors after showing window

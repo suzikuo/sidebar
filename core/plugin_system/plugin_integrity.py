@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import os
 import shutil
@@ -17,6 +19,47 @@ from core.plugin_system.plugin_wheel import PluginWheelError, inspect_wheel
 
 
 _HASH_CHUNK_SIZE = 1024 * 1024
+
+
+def build_plugin_file_hashes(root) -> dict[str, str]:
+    """Build an in-memory file declaration for a trusted source plugin."""
+
+    plugin_root = _resolve_plugin_root(root)
+    files = {}
+    try:
+        for directory, directory_names, file_names in os.walk(
+            plugin_root, topdown=True, followlinks=False
+        ):
+            directory_path = Path(directory)
+            for name in directory_names:
+                if _is_unsafe_path(directory_path / name):
+                    raise PluginManifestError(
+                        "UNSAFE_PLUGIN_FILE",
+                        f"Plugin directory contains a link or reparse point: {name}",
+                    )
+            for name in file_names:
+                path = directory_path / name
+                relative_path = path.relative_to(plugin_root).as_posix()
+                if relative_path == "manifest.json":
+                    continue
+                relative_parts = Path(relative_path).parts
+                if "__pycache__" in relative_parts and path.suffix.lower() == ".pyc":
+                    continue
+                path_stat = os.lstat(path)
+                if _stat_is_unsafe_file(path_stat):
+                    raise PluginManifestError(
+                        "UNSAFE_PLUGIN_FILE",
+                        f"Plugin file is not a regular independent file: {name}",
+                    )
+                files[relative_path] = _hash_file(path, path_stat)
+    except PluginManifestError:
+        raise
+    except OSError as error:
+        raise PluginManifestError(
+            "PLUGIN_DIRECTORY_UNAVAILABLE",
+            f"Cannot enumerate plugin files: {error}",
+        ) from error
+    return dict(sorted(files.items()))
 
 
 def hash_plugin_directory(root) -> str:

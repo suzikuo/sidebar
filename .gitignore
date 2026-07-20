@@ -24,3 +24,4 @@ venv
 front/node_modules
 TASK_PLAN*
 .artifacts
+*.atplugin

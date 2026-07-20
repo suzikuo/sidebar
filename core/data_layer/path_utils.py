@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -44,12 +47,16 @@ class PathManager:
     @staticmethod
     def get_plugin_search_paths() -> list[Path]:
         """
-        Return the runtime plugin roots.
+        Return runtime plugin roots from low to high priority.
 
-        Release plugins are standalone packages and become discoverable only
-        after the installer imports them into the AppData user-plugin root.
+        Built-in plugins ship with the host. User-installed plugins are scanned
+        last so an installed version can override a built-in plugin with the
+        same id.
         """
-        return [PathManager.get_user_plugins_dir()]
+        return [
+            *PathManager.get_bundled_plugin_dirs(),
+            PathManager.get_user_plugins_dir(),
+        ]
 
     @staticmethod
     def get_control_center_web_dir() -> Path:
@@ -78,8 +85,11 @@ class PathManager:
 
     @staticmethod
     def get_bundled_plugin_dirs() -> list[Path]:
-        """Bundled plugin roots are no longer part of the default distribution."""
-        return []
+        """Return existing read-only plugin roots shipped with the host."""
+        bundled = PathManager.get_base_dir() / "builtin_plugins"
+        if not bundled.is_dir():
+            return []
+        return [bundled.resolve(strict=False)]
 
     @staticmethod
     def get_user_plugins_dir() -> Path:
@@ -90,8 +100,14 @@ class PathManager:
 
     @staticmethod
     def get_plugin_dependency_store_dir() -> Path:
-        """Return the versioned AppData root for content-addressed dependencies."""
-        store = PathManager.get_app_data_root() / "plugin-dependencies" / "v1"
+        """Return a short local cache root for rebuildable plugin dependencies."""
+        if sys.platform == "win32":
+            # Store Python virtualizes AppData into a much longer LocalCache path.
+            # TEMP remains unvirtualized and keeps extracted wheel members below
+            # the traditional Windows MAX_PATH limit.
+            store = Path(tempfile.gettempdir()) / PathManager.APP_NAME / "deps" / "v1"
+        else:
+            store = PathManager.get_app_data_root() / "plugin-dependencies" / "v1"
         store.mkdir(parents=True, exist_ok=True)
         return store
 

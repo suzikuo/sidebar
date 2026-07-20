@@ -2,7 +2,7 @@ import hashlib
 import importlib.util
 import sys
 from importlib.machinery import ModuleSpec
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import ModuleType
 from typing import Any, Dict, Type
 
@@ -231,14 +231,18 @@ class PluginRuntime:
     @staticmethod
     def _resolve_entry_file(plugin_dir: str, entry: str) -> Path:
         plugin_root = Path(plugin_dir).resolve(strict=True)
-        entry_parts = entry.replace("\\", "/").split("/")
-        entry_file = plugin_root.joinpath(*entry_parts).resolve(strict=True)
-        try:
-            entry_file.relative_to(plugin_root)
-        except ValueError as error:
-            raise ImportError(
-                "Plugin entry resolves outside its plugin directory."
-            ) from error
+        normalized = str(entry or "").strip().replace("\\", "/")
+        windows_path = PureWindowsPath(normalized)
+        posix_path = PurePosixPath(normalized)
+        if (
+            not normalized
+            or windows_path.is_absolute()
+            or bool(windows_path.drive)
+            or posix_path.is_absolute()
+            or any(part in {"", ".", ".."} for part in posix_path.parts)
+        ):
+            raise ImportError("Plugin entry must be a safe relative path.")
+        entry_file = plugin_root.joinpath(*posix_path.parts)
         if not entry_file.is_file():
             raise ImportError("Plugin entry is not a file.")
         return entry_file

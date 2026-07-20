@@ -20,7 +20,7 @@ def source_tree(root):
     return [(source, dirname(target) or '.') for target, source, _ in tree]
 
 
-datas = source_tree('ui') + [('VERSION', '.')]
+datas = source_tree('ui') + source_tree('builtin_plugins') + [('VERSION', '.')]
 for distribution in HOST_DISTRIBUTIONS:
     datas += copy_metadata(distribution)
 binaries = collect_dynamic_libs('qfluentwidgets')

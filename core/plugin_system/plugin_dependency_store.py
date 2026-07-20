@@ -45,7 +45,7 @@ from core.plugin_system.plugin_wheel_types import (
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _STAGING_PATTERN = re.compile(
-    r"[0-9a-f]{64}\.[0-9]+\.[0-9a-f]{32}\.tmp\Z"
+    r"[0-9a-f]{16}\.[0-9]+\.[0-9a-f]{16}\.tmp\Z"
 )
 
 
@@ -164,7 +164,7 @@ class PluginDependencyStore:
             return verify_dependency_object(final_path, expected_artifact=artifact)
 
         staging_path = self.staging_root / (
-            f"{artifact.sha256}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+            f"{artifact.sha256[:16]}.{os.getpid()}.{uuid.uuid4().hex[:16]}.tmp"
         )
         try:
             staging_path.mkdir(mode=0o700)

@@ -71,7 +71,8 @@ sidebar/
 │   ├── data_layer/         # 数据层
 │   │   └── data_service.py     # 数据服务
 │   └── state_store.py      # 状态持久化
-├── plugins1/               # 官方插件包源码（不内置进宿主发布包）
+├── builtin_plugins/        # 内置插件（源码运行和宿主发布时直接加载）
+├── plugins1/               # 独立插件包源码（只生成 .atplugin）
 ├── build_plugins.py        # 批量生成独立 .atplugin
 └── ui/                     # UI 组件
     └── components/         # 公共组件
@@ -90,8 +91,8 @@ from qfluentwidgets import setTheme, Theme, setThemeColor
 ```
 
 #### 2. PluginManager - 插件管理器
-- 默认只发现 AppData `user-plugins/` 下已安装的插件
-- 仓库 `plugins1/` 是打包源码，不作为正式发布的内置插件目录
+- 先发现随程序提供的 `builtin_plugins/`，再发现 AppData `user-plugins/` 下已安装的插件
+- 用户插件与内置插件 ID 相同时，用户插件优先；仓库 `plugins1/` 不参与运行时扫描
 - 根据 manifest 前置依赖拓扑加载插件
 - 管理安装、更新、启停、回滚和卸载事务
 

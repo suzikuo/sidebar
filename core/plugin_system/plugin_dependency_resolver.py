@@ -3,9 +3,10 @@ from __future__ import annotations
 import keyword
 import re
 import sys
+import sysconfig
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Mapping
 
@@ -21,6 +22,30 @@ from core.plugin_system.plugin_wheel import WheelArtifact
 
 _CPYTHON_ABI_PATTERN = re.compile(r"cp(?P<digits>[0-9]{2,3})\Z")
 _TOP_LEVEL_IMPORT_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def _discover_stdlib_module_names() -> frozenset[str]:
+    declared = getattr(sys, "stdlib_module_names", None)
+    if declared is not None:
+        return frozenset(declared)
+
+    names = set(sys.builtin_module_names)
+    roots = [Path(sysconfig.get_path("stdlib")), Path(sys.base_prefix) / "DLLs"]
+    for root in roots:
+        try:
+            entries = tuple(root.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name in {"__pycache__", "site-packages", "dist-packages"}:
+                continue
+            name = entry.name if entry.is_dir() else entry.name.split(".", 1)[0]
+            if name.isidentifier():
+                names.add(name)
+    return frozenset(names)
+
+
+_STDLIB_MODULE_NAMES = _discover_stdlib_module_names()
 
 
 class PluginDependencyResolutionError(ValueError):
@@ -103,7 +128,7 @@ def resolve_dependency_set(
         for name in (
             stdlib_modules
             if stdlib_modules is not None
-            else sys.stdlib_module_names
+            else _STDLIB_MODULE_NAMES
         )
     }
     protected_host_imports = _normalize_host_imports(host_imports)

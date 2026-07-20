@@ -462,7 +462,7 @@ class PluginDependencyStoreTest(unittest.TestCase):
     def test_matching_orphan_staging_directory_is_cleaned_before_materialize(self):
         artifact = self.build_artifact()
         orphan = self.store_root / "staging" / (
-            f"{artifact.sha256}.{os.getpid()}.{'a' * 32}.tmp"
+            f"{artifact.sha256[:16]}.{os.getpid()}.{'a' * 16}.tmp"
         )
         nested = orphan / "partial" / "site"
         nested.mkdir(parents=True)

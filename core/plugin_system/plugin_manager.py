@@ -13,7 +13,12 @@ from core.plugin_system.manifest_loader import ManifestLoader
 from core.plugin_system.plugin_manifest import (
     HostEnvironment,
     PluginManifestError,
+    PythonDependencyPolicy,
     check_compatibility,
+)
+from core.plugin_system.plugin_dependency_runtime import (
+    PluginDependencyRuntime,
+    PluginDependencyRuntimeError,
 )
 from core.plugin_system.plugin_graph import PluginBlockReason, resolve_plugin_graph
 from core.plugin_system.plugin_installer import PluginInstaller, PluginInstallerError
@@ -82,6 +87,7 @@ class PluginManager(QObject):
         self._unverified_updates = {}
         self._blocked_user_plugins = set()
         self._restart_required_plugins = set()
+        self._dependency_runtime = None
         self._host_environment_error = None
         try:
             self.host_environment = host_environment or build_host_environment()
@@ -96,6 +102,7 @@ class PluginManager(QObject):
                 self.user_plugins_dir,
                 transaction_root,
                 host_environment=self.host_environment,
+                python_dependency_policy=PythonDependencyPolicy.ALLOW_DECLARED,
             )
         except PluginInstallerError as exc:
             self.installer = None
@@ -151,6 +158,7 @@ class PluginManager(QObject):
                     exc_info=True,
                 )
         self.discover_plugins()
+        self._prepare_managed_dependencies()
         if self._plugin_graph is None:
             self._plugin_graph = self._resolve_enabled_plugin_graph()
         self._load_graph_plugins(self._plugin_graph)
@@ -192,7 +200,10 @@ class PluginManager(QObject):
                 if not os.path.isdir(item_path):
                     continue
 
-                loaded_manifest = ManifestLoader.load_with_model(item_path)
+                loaded_manifest = ManifestLoader.load_with_model(
+                    item_path,
+                    allow_unsealed=source_kind == "bundled",
+                )
                 if not loaded_manifest:
                     continue
                 manifest, manifest_model = loaded_manifest
@@ -223,7 +234,11 @@ class PluginManager(QObject):
                         continue
                 else:
                     try:
-                        check_compatibility(manifest_model, self.host_environment)
+                        check_compatibility(
+                            manifest_model,
+                            self.host_environment,
+                            python_dependency_policy=PythonDependencyPolicy.ALLOW_DECLARED,
+                        )
                     except PluginManifestError as exc:
                         compatibility_errors[plugin_id] = {
                             "code": exc.code,
@@ -357,6 +372,41 @@ class PluginManager(QObject):
                 continue
             if not self._load_single_plugin(plugin_id):
                 self._block_dependents_after_load_failure(graph, plugin_id)
+
+    def _prepare_managed_dependencies(self):
+        if self._dependency_runtime is not None:
+            return True
+        manifests = {
+            plugin_id: manifest
+            for plugin_id, manifest in self._manifest_models.items()
+            if self._is_plugin_enabled(plugin_id) and manifest.dependencies.python
+        }
+        if not manifests:
+            return True
+        paths = {plugin_id: self._plugin_paths[plugin_id] for plugin_id in manifests}
+        try:
+            runtime = PluginDependencyRuntime()
+            runtime.prepare(manifests, paths, self.host_environment)
+            self._dependency_runtime = runtime
+            return True
+        except PluginDependencyRuntimeError as error:
+            blocked_ids = error.plugin_ids or tuple(manifests)
+            for plugin_id in blocked_ids:
+                reason = PluginBlockReason(
+                    "PLUGIN_DEPENDENCY_RUNTIME_ERROR",
+                    None,
+                    f"Managed dependencies are unavailable: {error}",
+                )
+                existing = self._dependency_errors.get(plugin_id, ())
+                self._dependency_errors[plugin_id] = (*existing, reason)
+                self.runtime.load_errors[f"plugin-dependency:{plugin_id}"] = str(error)
+            logger.error(
+                "Managed plugin dependencies are unavailable [%s]: %s",
+                error.code,
+                error,
+                exc_info=True,
+            )
+            return False
 
     def _first_unloaded_required_provider(self, plugin_id):
         if self._plugin_graph is None:
@@ -495,6 +545,7 @@ class PluginManager(QObject):
             loaded = ManifestLoader.load_with_model(
                 candidate["path"],
                 log_errors=False,
+                allow_unsealed=candidate.get("kind") == "bundled",
             )
             if loaded is None:
                 continue
@@ -1241,4 +1292,11 @@ class PluginManager(QObject):
         """Shutdown all loaded plugins."""
         for plugin_id in reversed(tuple(self.runtime._loaded_plugins)):
             self.runtime.unload_plugin(plugin_id)
+        if self._dependency_runtime is not None:
+            try:
+                self._dependency_runtime.close()
+            except Exception:
+                logger.error("Failed to close plugin dependency runtime.", exc_info=True)
+            finally:
+                self._dependency_runtime = None
         logger.info("PluginManager shutdown complete.")

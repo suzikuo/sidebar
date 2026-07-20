@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from PySide6.QtCore import QEventLoop, QTimer, QUrl
 from PySide6.QtWidgets import QApplication
@@ -20,6 +21,26 @@ from core.web_ui.web_plugin_host import (
 
 
 class WebPluginHostSecurityTest(unittest.TestCase):
+    def test_store_virtualized_child_keeps_logical_web_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "index.html").write_text("<html></html>", encoding="utf-8")
+            original_resolve = Path.resolve
+
+            def virtualized_child(path, *args, **kwargs):
+                resolved = original_resolve(path, *args, **kwargs)
+                if resolved.name == "index.html":
+                    return root / "LocalCache" / "index.html"
+                return resolved
+
+            with patch.object(Path, "resolve", virtualized_child):
+                resolved_root, entry = resolve_web_entry(root)
+                allowed = is_web_url_allowed(QUrl.fromLocalFile(str(entry)), resolved_root)
+
+            self.assertEqual(resolved_root, root.resolve())
+            self.assertEqual(entry, root.resolve() / "index.html")
+            self.assertTrue(allowed)
+
     def test_entry_must_exist_inside_content_root(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

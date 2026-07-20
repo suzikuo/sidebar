@@ -97,15 +97,26 @@ def _write_v2_package(
 
 
 class PathManagerPluginPathsTest(unittest.TestCase):
-    def test_search_paths_ignore_release_plugin_packages_until_installed(self):
+    def test_windows_dependency_store_uses_short_temp_cache_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp)
+            with patch("core.data_layer.path_utils.sys.platform", "win32"):
+                with patch(
+                    "core.data_layer.path_utils.tempfile.gettempdir",
+                    return_value=str(temp_root),
+                ):
+                    store = PathManager.get_plugin_dependency_store_dir()
+
+            self.assertEqual(store, temp_root / "AgileTiles" / "deps" / "v1")
+            self.assertTrue(store.is_dir())
+
+    def test_search_paths_include_builtins_before_installed_plugins(self):
         with tempfile.TemporaryDirectory() as tmp:
             temp_root = Path(tmp)
             base_dir = temp_root / "app"
             app_data = temp_root / "appdata"
-            bundled = base_dir / "plugins"
-            internal = base_dir / "_internal" / "plugins"
+            bundled = base_dir / "builtin_plugins"
             bundled.mkdir(parents=True)
-            internal.mkdir(parents=True)
 
             with patch.object(PathManager, "get_base_dir", return_value=base_dir):
                 with patch.object(
@@ -113,7 +124,7 @@ class PathManagerPluginPathsTest(unittest.TestCase):
                 ):
                     paths = PathManager.get_plugin_search_paths()
 
-            self.assertEqual(paths, [app_data / "user-plugins"])
+            self.assertEqual(paths, [bundled, app_data / "user-plugins"])
             self.assertTrue(paths[-1].is_dir())
 
     def test_missing_bundled_roots_are_not_created(self):
@@ -128,10 +139,65 @@ class PathManagerPluginPathsTest(unittest.TestCase):
                     paths = PathManager.get_plugin_search_paths()
 
             self.assertEqual(paths, [app_data / "user-plugins"])
-            self.assertFalse((base_dir / "plugins").exists())
+            self.assertFalse((base_dir / "builtin_plugins").exists())
 
 
 class ManifestLoaderSecurityTest(unittest.TestCase):
+    def test_entry_validation_does_not_resolve_virtualized_appdata_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_dir = _write_plugin(Path(tmp), "sample", "sample")
+            original_resolve = Path.resolve
+
+            def virtualized_child(path, *args, **kwargs):
+                resolved = original_resolve(path, *args, **kwargs)
+                if resolved.name == "plugin.py":
+                    return Path(tmp) / "LocalCache" / "plugin.py"
+                return resolved
+
+            with patch.object(Path, "resolve", virtualized_child):
+                manifest = ManifestLoader.load(str(plugin_dir))
+
+            self.assertIsNotNone(manifest)
+
+    def test_unsealed_v2_manifest_is_allowed_only_when_explicitly_requested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_dir = _write_plugin(Path(tmp), "sample", "sample")
+            manifest_path = plugin_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest.update(
+                {
+                    "manifest_version": 2,
+                    "api_version": "1.0",
+                    "compatibility": {
+                        "app": ">=1.0.0,<2.0.0",
+                        "python_abi": "cp311",
+                        "platform": "win_amd64",
+                    },
+                    "dependencies": {"host": [], "python": []},
+                    "ui": {"type": "native"},
+                    "native_modules": [],
+                    "files": {},
+                    "requires_restart": False,
+                }
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            self.assertIsNone(
+                ManifestLoader.load_with_model(str(plugin_dir), log_errors=False)
+            )
+            loaded = ManifestLoader.load_with_model(
+                str(plugin_dir),
+                log_errors=False,
+                allow_unsealed=True,
+            )
+
+            self.assertIsNotNone(loaded)
+            self.assertIn("plugin.py", loaded[0]["files"])
+            self.assertEqual(
+                json.loads(manifest_path.read_text(encoding="utf-8"))["files"],
+                {},
+            )
+
     def test_accepts_safe_nested_python_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             plugin_dir = _write_plugin(

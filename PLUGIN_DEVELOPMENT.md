@@ -152,6 +152,14 @@ python .\build_plugins.py
 
 输出位于 `dist/plugins/<plugin-id>.atplugin`。批量构建会先在临时目录完成全部包的自校验，全部成功后才替换输出目录中的 `.atplugin`，防止失败时留下部分新版本或让已移除插件继续混入发布物。
 
+仓库内建议使用以下开发流程：
+
+1. 将开发中的系统插件放在 `builtin_plugins/<plugin-id>/`，直接启动主程序进行调试。
+2. 验证完成后，将插件目录移动到 `plugins1/<plugin-id>/`。
+3. 运行 `python .\build_plugins.py` 生成可手动安装的 `.atplugin`。
+
+`builtin_plugins/` 会随宿主一起打包并直接加载；`plugins1/` 既不参与运行时扫描，也不会进入宿主包。不要在两个目录同时保留相同 ID 的源码，以免误判当前测试的是哪个版本。
+
 ## 6. 安装和更新
 
 1. 打开 Agile Tiles 设置。
@@ -159,7 +167,7 @@ python .\build_plugins.py
 3. 选择 `.atplugin`。
 4. 校验成功后重启 Agile Tiles。
 
-更新使用相同 `id` 和新的 `version` 再次导入。安装器只写入 AppData 用户插件目录；正式发布不再提供 bundled 插件源码回退。更新加载失败时会按插件类型回滚或排队重启回滚。
+更新使用相同 `id` 和新的 `version` 再次导入。安装器只写入 AppData 用户插件目录；用户版本会覆盖相同 ID 的内置版本，卸载用户版本后恢复使用内置版本。更新加载失败时会按插件类型回滚或排队重启回滚。
 
 设置页会显示来源、版本、加载/阻断、pending 和错误状态，并提供取消 pending、卸载用户版与安全回滚操作。
 
@@ -180,4 +188,4 @@ python .\build_plugins.py
 python .\build.py
 ```
 
-`build.py` 只委托 `AgileTiles.spec` 生成 `dist/AgileTiles` onedir，不再向宿主目录复制插件包。`build_plugins.py` 单独将 `plugins1/` 下的全部插件打成 `dist/plugins/*.atplugin`。spec 不收集 `plugins1/` 插件源码树；插件包是可选安装介质，不会被默认发现或自动安装。普通纯 Python 插件更新只需运行 `build_plugins.py`，不需要重新构建宿主。
+`build.py` 只委托 `AgileTiles.spec` 生成 `dist/AgileTiles` onedir，并收集 `builtin_plugins/`。`build_plugins.py` 单独将 `plugins1/` 下的全部插件打成 `dist/plugins/*.atplugin`。spec 不收集 `plugins1/`；独立插件包是可选安装介质，不会被默认发现或自动安装。修改内置插件需要重新构建宿主，修改 `plugins1/` 中的普通纯 Python 插件只需运行 `build_plugins.py`。

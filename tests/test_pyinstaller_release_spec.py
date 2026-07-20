@@ -28,7 +28,16 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
             name: [(f"{name}.dist-info", f"{name}.dist-info")]
             for name in HOST_DISTRIBUTIONS
         }
-        tree_entries = {"ui": [("ui/widget.py", "ui/widget.py", "DATA")]}
+        tree_entries = {
+            "ui": [("ui/widget.py", "ui/widget.py", "DATA")],
+            "builtin_plugins": [
+                (
+                    "builtin_plugins/sample/plugin.py",
+                    "builtin_plugins/sample/plugin.py",
+                    "DATA",
+                )
+            ],
+        }
 
         def analysis(*args, **kwargs):
             captured["datas"] = tuple(kwargs["datas"])
@@ -83,7 +92,7 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         collected_submodules.assert_not_called()
         self.assertEqual(
             [call.args[0] for call in collected_tree.call_args_list],
-            ["ui"],
+            ["ui", "builtin_plugins"],
         )
         for call in collected_tree.call_args_list:
             self.assertEqual(
@@ -103,6 +112,10 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
             any(destination == "plugins" for _, destination in captured["datas"])
         )
         self.assertIn(("ui/widget.py", "ui"), captured["datas"])
+        self.assertIn(
+            ("builtin_plugins/sample/plugin.py", "builtin_plugins/sample"),
+            captured["datas"],
+        )
         self.assertIn(("VERSION", "."), captured["datas"])
         self.assertIn(("fluent-resource", "qfluentwidgets"), captured["datas"])
         self.assertIn(metadata_datas["PySide6"][0], captured["datas"])

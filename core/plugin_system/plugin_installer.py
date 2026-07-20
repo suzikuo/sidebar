@@ -31,6 +31,7 @@ from core.plugin_system.plugin_integrity import hash_plugin_directory
 from core.plugin_system.plugin_manifest import (
     HostEnvironment,
     PluginManifestError,
+    PythonDependencyPolicy,
     check_compatibility,
 )
 
@@ -115,10 +116,20 @@ class PluginInstaller:
         transaction_root=None,
         *,
         host_environment: HostEnvironment | None = None,
+        python_dependency_policy: PythonDependencyPolicy = PythonDependencyPolicy.REJECT,
     ):
         self._lock = threading.RLock()
         self._transaction_local = threading.local()
         self.host_environment = host_environment
+        try:
+            self.python_dependency_policy = PythonDependencyPolicy(
+                python_dependency_policy
+            )
+        except (TypeError, ValueError) as error:
+            raise PluginInstallerError(
+                "INVALID_DEPENDENCY_POLICY",
+                "Plugin dependency policy is invalid.",
+            ) from error
         self.user_plugins_root = self._prepare_root(
             user_plugins_root, "INVALID_USER_PLUGIN_ROOT"
         )
@@ -1048,7 +1059,11 @@ class PluginInstaller:
                 )
             return
         try:
-            check_compatibility(manifest, self.host_environment)
+            check_compatibility(
+                manifest,
+                self.host_environment,
+                python_dependency_policy=self.python_dependency_policy,
+            )
         except PluginManifestError as error:
             raise PluginInstallerError(error.code, str(error)) from error
 

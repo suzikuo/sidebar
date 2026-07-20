@@ -1,4 +1,6 @@
-from pathlib import Path
+import os
+import stat
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Iterable
 
 from PySide6.QtCore import QUrl, Signal
@@ -22,8 +24,8 @@ def resolve_web_entry(content_root, entry="index.html"):
     if not root.is_dir():
         raise ValueError("Web content root must be a directory.")
 
-    entry_path = (root / str(entry or "")).resolve(strict=True)
-    if not entry_path.is_file() or not entry_path.is_relative_to(root):
+    entry_path = root.joinpath(*_safe_relative_parts(entry))
+    if not entry_path.is_file() or _contains_link_or_reparse(root, entry_path):
         raise ValueError("Web entry must be a file inside the content root.")
     return root, entry_path
 
@@ -38,10 +40,49 @@ def is_web_url_allowed(url: QUrl, content_root: Path):
         return False
 
     try:
-        requested_path = Path(url.toLocalFile()).resolve(strict=False)
-    except (OSError, RuntimeError):
+        root = Path(os.path.abspath(content_root))
+        requested_path = Path(os.path.abspath(url.toLocalFile()))
+        requested_path.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
         return False
-    return requested_path.is_relative_to(content_root)
+    return not _contains_link_or_reparse(root, requested_path)
+
+
+def _safe_relative_parts(value) -> tuple[str, ...]:
+    normalized = str(value or "").strip().replace("\\", "/")
+    windows_path = PureWindowsPath(normalized)
+    posix_path = PurePosixPath(normalized)
+    if (
+        not normalized
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+        or posix_path.is_absolute()
+        or any(part in {"", ".", ".."} for part in posix_path.parts)
+    ):
+        raise ValueError("Web entry must be a safe relative path.")
+    return tuple(posix_path.parts)
+
+
+def _contains_link_or_reparse(root: Path, target: Path) -> bool:
+    try:
+        relative = target.relative_to(root)
+    except ValueError:
+        return True
+    current = root
+    for part in relative.parts:
+        current /= part
+        try:
+            path_stat = current.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+        attributes = getattr(path_stat, "st_file_attributes", 0)
+        if stat.S_ISLNK(path_stat.st_mode) or bool(
+            attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            return True
+    return False
 
 
 class _RestrictedRequestInterceptor(QWebEngineUrlRequestInterceptor):
