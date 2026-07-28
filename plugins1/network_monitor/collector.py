@@ -7,11 +7,13 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
+from .models import ApplicationTraffic
 from .monitor import TrafficRates, TrafficRateSampler, WindowsNetworkMonitor
-from .v2ray import V2RayNMetricsClient, V2RayNMetricsConfig
 
 
 DEFAULT_CONFIG = {
+    "application_monitor_enabled": False,
+    "network_scope": "default_route",
     "v2rayn_enabled": True,
     "v2rayn_host": "127.0.0.1",
     "v2rayn_metrics_port": 21193,
@@ -22,6 +24,11 @@ DEFAULT_CONFIG = {
     "floating_background_opacity": 0,
     "floating_font_color": "#FFFFFF",
     "floating_locked": False,
+    "floating_layout_mode": "single",
+    "floating_scale": 100,
+    "floating_font_size": 11,
+    "floating_display_mode": "proxy_direct",
+    "floating_show_v2ray_metadata": False,
     "floating_x": None,
     "floating_y": None,
 }
@@ -36,11 +43,26 @@ class NetworkSnapshot:
     v2rayn_connected: bool
     system_error: str | None = None
     proxy_error: str | None = None
+    applications: tuple[ApplicationTraffic, ...] = ()
+    app_monitor_available: bool = False
+    app_monitor_error: str | None = None
+    timestamp: int = 0
+    interval_seconds: float = 1.0
+    v2ray_node: str | None = None
+    v2ray_latency_ms: float | None = None
+    v2ray_route: str | None = None
 
 
 def normalize_config(value: Mapping | None) -> dict:
     source = value if isinstance(value, Mapping) else {}
     config = dict(DEFAULT_CONFIG)
+    config["application_monitor_enabled"] = bool(
+        source.get("application_monitor_enabled", False)
+    )
+    network_scope = str(source.get("network_scope", "default_route")).strip().lower()
+    config["network_scope"] = (
+        network_scope if network_scope in {"default_route", "all_active"} else "default_route"
+    )
     config["v2rayn_enabled"] = bool(
         source.get("v2rayn_enabled", source.get("v2ray_enabled", True))
     )
@@ -84,6 +106,37 @@ def normalize_config(value: Mapping | None) -> dict:
         DEFAULT_CONFIG["floating_font_color"],
     )
     config["floating_locked"] = bool(source.get("floating_locked", False))
+    layout_mode = str(source.get("floating_layout_mode", "single")).strip().lower()
+    config["floating_layout_mode"] = (
+        layout_mode if layout_mode in {"single", "double"} else "single"
+    )
+    config["floating_scale"] = _bounded_int(
+        source.get("floating_scale"),
+        DEFAULT_CONFIG["floating_scale"],
+        70,
+        140,
+    )
+    config["floating_font_size"] = _bounded_int(
+        source.get("floating_font_size"),
+        DEFAULT_CONFIG["floating_font_size"],
+        8,
+        18,
+    )
+    display_mode = str(
+        source.get("floating_display_mode", "proxy_direct")
+    ).strip().lower()
+    allowed_modes = {
+        "proxy_direct",
+        "system_direct",
+        "system_proxy",
+        "system_proxy_direct",
+    }
+    config["floating_display_mode"] = (
+        display_mode if display_mode in allowed_modes else "proxy_direct"
+    )
+    config["floating_show_v2ray_metadata"] = bool(
+        source.get("floating_show_v2ray_metadata", False)
+    )
     for key in ("floating_x", "floating_y"):
         raw_position = source.get(key)
         config[key] = (
@@ -96,10 +149,18 @@ def normalize_config(value: Mapping | None) -> dict:
 
 def validate_config(value: Mapping | None) -> dict:
     config = normalize_config(value)
-    if not config["v2rayn_host"]:
-        raise ValueError("v2rayN Metrics 地址不能为空。")
     if config["v2rayn_enabled"]:
-        _v2rayn_config(config)
+        from .v2ray_source import validate_config as validate_v2ray_config
+
+        validate_v2ray_config(
+            {
+                "enabled": True,
+                "host": config["v2rayn_host"],
+                "metrics_port": config["v2rayn_metrics_port"],
+                "refresh_interval_ms": config["refresh_interval_ms"],
+                "timeout_ms": config["timeout_ms"],
+            }
+        )
     return config
 
 
@@ -109,32 +170,45 @@ class NetworkMonitorCollector:
     def __init__(
         self,
         system_monitor=None,
-        v2rayn_client_factory: Callable = V2RayNMetricsClient,
+        application_source=None,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ):
         self._system_monitor = system_monitor or WindowsNetworkMonitor()
-        self._v2rayn_client_factory = v2rayn_client_factory
+        self._application_source = application_source
         self._clock = clock
+        self._wall_clock = wall_clock
         self._system_sampler = TrafficRateSampler()
-        self._proxy_sampler = TrafficRateSampler()
-        self._proxy_signature = None
+        self._previous_collect_time = None
 
-    def collect(self, value: Mapping | None) -> NetworkSnapshot:
+    def collect(self, value: Mapping | None, proxy_snapshot=None) -> NetworkSnapshot:
         config = normalize_config(value)
         timestamp = self._clock()
+        wall_timestamp = int(self._wall_clock())
+        previous_collect_time = self._previous_collect_time
+        self._previous_collect_time = timestamp
+        interval_seconds = (
+            max(0.001, timestamp - previous_collect_time)
+            if previous_collect_time is not None and timestamp > previous_collect_time
+            else max(0.001, config["refresh_interval_ms"] / 1000.0)
+        )
+        application_result = self._collect_applications(
+            interval_seconds,
+            config["application_monitor_enabled"],
+        )
         system_rates = None
         system_error = None
         try:
             system_rates = self._system_sampler.sample(
-                self._system_monitor.read_counters(),
+                self._system_monitor.read_counters(config["network_scope"]),
                 now=timestamp,
             )
         except Exception as error:
             system_error = str(error)
 
-        if not config["v2rayn_enabled"]:
-            self._proxy_sampler = TrafficRateSampler()
-            self._proxy_signature = None
+        if isinstance(proxy_snapshot, Mapping) and not proxy_snapshot.get(
+            "enabled", True
+        ):
             proxy_rates = TrafficRates(0.0, 0.0)
             return NetworkSnapshot(
                 system=system_rates,
@@ -143,24 +217,27 @@ class NetworkMonitorCollector:
                 v2rayn_enabled=False,
                 v2rayn_connected=False,
                 system_error=system_error,
+                applications=application_result.applications,
+                app_monitor_available=application_result.available,
+                app_monitor_error=application_result.error,
+                timestamp=wall_timestamp,
+                interval_seconds=interval_seconds,
             )
 
-        proxy_rates = None
-        proxy_error = None
-        try:
-            metrics_config = _v2rayn_config(config)
-            signature = (metrics_config.host, metrics_config.port)
-            if signature != self._proxy_signature:
-                self._proxy_sampler = TrafficRateSampler()
-                self._proxy_signature = signature
-            client = self._v2rayn_client_factory(metrics_config)
-            proxy_rates = self._proxy_sampler.sample(
-                client.read_counters(),
-                now=timestamp,
-            )
-        except Exception as error:
-            proxy_error = str(error)
-            self._proxy_sampler = TrafficRateSampler()
+        proxy_rates, proxy_error = _external_proxy_rates(
+            proxy_snapshot,
+            wall_timestamp,
+        )
+        v2rayn_enabled = bool(
+            proxy_snapshot.get("enabled", True)
+            if isinstance(proxy_snapshot, Mapping)
+            else True
+        )
+        v2rayn_connected = bool(
+            proxy_snapshot.get("connected", False)
+            if isinstance(proxy_snapshot, Mapping)
+            else False
+        )
 
         direct_rates = None
         if system_rates is not None and proxy_rates is not None:
@@ -181,19 +258,63 @@ class NetworkMonitorCollector:
             system=system_rates,
             proxy=proxy_rates,
             direct=direct_rates,
-            v2rayn_enabled=True,
-            v2rayn_connected=proxy_rates is not None,
+            v2rayn_enabled=v2rayn_enabled,
+            v2rayn_connected=v2rayn_connected and proxy_rates is not None,
             system_error=system_error,
             proxy_error=proxy_error,
+            applications=application_result.applications,
+            app_monitor_available=application_result.available,
+            app_monitor_error=application_result.error,
+            timestamp=wall_timestamp,
+            interval_seconds=interval_seconds,
+            v2ray_node=(
+                proxy_snapshot.get("node")
+                if isinstance(proxy_snapshot, Mapping)
+                else None
+            ),
+            v2ray_latency_ms=(
+                proxy_snapshot.get("latencyMs")
+                if isinstance(proxy_snapshot, Mapping)
+                else None
+            ),
+            v2ray_route=(
+                proxy_snapshot.get("route")
+                if isinstance(proxy_snapshot, Mapping)
+                else None
+            ),
         )
 
+    def _collect_applications(self, interval_seconds, enabled):
+        from .models import ApplicationTrafficResult
 
-def _v2rayn_config(config: Mapping) -> V2RayNMetricsConfig:
-    return V2RayNMetricsConfig(
-        host=config["v2rayn_host"],
-        port=config["v2rayn_metrics_port"],
-        timeout_seconds=config["timeout_ms"] / 1000.0,
-    )
+        if not enabled:
+            return ApplicationTrafficResult((), False, "应用流量监控已关闭。")
+        if self._application_source is None:
+            return ApplicationTrafficResult(
+                (),
+                False,
+                "ETW 应用流量源未配置。",
+            )
+        return self._application_source.drain(interval_seconds)
+
+
+def _external_proxy_rates(snapshot, now):
+    if not isinstance(snapshot, Mapping):
+        return None, "等待独立 V2Ray 监控插件数据。"
+    event_time = snapshot.get("timestamp")
+    try:
+        if event_time is None or now - int(event_time) > 10:
+            return None, "V2Ray 实时状态已过期。"
+    except (TypeError, ValueError):
+        return None, "V2Ray 实时状态时间戳无效。"
+    if not snapshot.get("connected"):
+        return None, str(snapshot.get("error") or "V2Ray Metrics 未连接。")
+    try:
+        upload = max(0.0, float(snapshot["uploadSpeed"]))
+        download = max(0.0, float(snapshot["downloadSpeed"]))
+    except (KeyError, TypeError, ValueError):
+        return None, "V2Ray 实时速率格式无效。"
+    return TrafficRates(upload, download), None
 
 
 def _bounded_int(value, default: int, minimum: int, maximum: int) -> int:

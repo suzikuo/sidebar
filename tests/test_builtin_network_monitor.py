@@ -8,8 +8,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = PROJECT_ROOT / "builtin_plugins" / "network_monitor"
 
 
-class BuiltinNetworkMonitorTest(unittest.TestCase):
-    def test_unsealed_builtin_source_passes_full_integrity_validation(self):
+class NetworkMonitorSourceTest(unittest.TestCase):
+    def test_unsealed_plugin_source_passes_full_integrity_validation(self):
         self.assertIsNone(
             ManifestLoader.load_with_model(
                 str(PLUGIN_ROOT),
@@ -26,14 +26,17 @@ class BuiltinNetworkMonitorTest(unittest.TestCase):
         self.assertIsNotNone(loaded)
         raw, manifest = loaded
         self.assertEqual(manifest.plugin_id, "network_monitor")
-        self.assertIsNone(manifest.dependencies.lock)
-        self.assertEqual(manifest.dependencies.python, ())
-        self.assertFalse(manifest.requires_restart)
+        self.assertEqual(manifest.dependencies.lock, "dependencies.lock.json")
+        self.assertEqual(
+            tuple(item.requirement for item in manifest.dependencies.python),
+            ("pywintrace==0.2.0",),
+        )
+        self.assertTrue(manifest.requires_restart)
         self.assertIn("plugin.py", raw["files"])
         self.assertIn("collector.py", raw["files"])
         self.assertIn("floating.py", raw["files"])
-        self.assertFalse(any(path.startswith("wheels/") for path in raw["files"]))
-        self.assertNotIn("dependencies.lock.json", raw["files"])
+        self.assertIn("wheels/pywintrace-0.2.0-py3-none-any.whl", raw["files"])
+        self.assertIn("dependencies.lock.json", raw["files"])
 
 
 if __name__ == "__main__":

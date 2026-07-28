@@ -1,0 +1,15 @@
+{
+  "lock_version": 1,
+  "packages": [
+    {
+      "name": "pywintrace",
+      "sha256": "f5191a5249b5d389581a8c3ab6268a837e1ba8ccd7a317b5d25160472651fd3a",
+      "version": "0.2.0",
+      "wheel": "wheels/pywintrace-0.2.0-py3-none-any.whl"
+    }
+  ],
+  "target": {
+    "platform": "win_amd64",
+    "python_abi": "cp311"
+  }
+}

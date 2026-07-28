@@ -1,9 +1,11 @@
 import json
 import unittest
+from types import SimpleNamespace
 
 from builtin_plugins.network_monitor.monitor import (
     TrafficCounters,
     TrafficRateSampler,
+    WindowsNetworkMonitor,
 )
 from builtin_plugins.network_monitor.v2ray import (
     V2RayNMetricsClient,
@@ -28,6 +30,38 @@ class _Response:
 
 
 class NetworkMonitorCoreTest(unittest.TestCase):
+    def test_default_route_scope_uses_only_the_selected_interface(self):
+        rows = (
+            SimpleNamespace(
+                InterfaceIndex=5,
+                OperStatus=1,
+                Type=6,
+                OutOctets=100,
+                InOctets=200,
+            ),
+            SimpleNamespace(
+                InterfaceIndex=7,
+                OperStatus=1,
+                Type=6,
+                OutOctets=300,
+                InOctets=400,
+            ),
+            SimpleNamespace(
+                InterfaceIndex=9,
+                OperStatus=1,
+                Type=24,
+                OutOctets=500,
+                InOctets=600,
+            ),
+        )
+
+        selected, matched = WindowsNetworkMonitor._aggregate_counters(rows, 7)
+        aggregate, _ = WindowsNetworkMonitor._aggregate_counters(rows)
+
+        self.assertTrue(matched)
+        self.assertEqual(selected, TrafficCounters(300, 400))
+        self.assertEqual(aggregate, TrafficCounters(400, 600))
+
     def test_rate_sampler_uses_elapsed_time_and_resets_on_counter_regression(self):
         sampler = TrafficRateSampler()
 

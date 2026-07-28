@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -24,6 +27,7 @@ class AppLauncher(PluginBase):
         super().__init__(context)
         # Default settings structure: {"apps": []}
         # App structure: {"id": str, "name": str, "exe_path": str, "arguments": str, "icon": str}
+        # Chrome entries may also include app_type/use_ahk/window_* fields.
         self.settings = {"apps": []}
         self.ui_widget = None
 
@@ -157,10 +161,12 @@ class AppLauncher(PluginBase):
         command = [exe_path] + args
 
         try:
-            logger.info(f"App Launcher launching: {command}")
-            # Use Popen to launch without blocking
-            cwd = os.path.dirname(exe_path)
-            subprocess.Popen(command, shell=False, cwd=cwd)
+            if app.get("app_type") == "chrome" and app.get("use_ahk"):
+                self._launch_with_ahk(app, command)
+            else:
+                logger.info(f"App Launcher launching: {command}")
+                cwd = os.path.dirname(exe_path)
+                subprocess.Popen(command, shell=False, cwd=cwd)
             self.context.close_detail_view()
         except Exception as e:
             from qfluentwidgets import MessageBox
@@ -171,3 +177,86 @@ class AppLauncher(PluginBase):
                 self.ui_widget.window() if self.ui_widget else None,
             )
             w.exec()
+
+    def _launch_with_ahk(self, app: dict, command: list[str]):
+        ahk_path = self._resolve_ahk_path(app.get("ahk_path", ""))
+        if not ahk_path:
+            raise FileNotFoundError(
+                "AutoHotkey was not found. Install AutoHotkey or set its path in this Chrome entry."
+            )
+
+        script_dir = self.data_dir / "ahk"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        script_path = script_dir / f"{app.get('id') or 'chrome'}.ahk"
+        script_path.write_text(
+            self._build_ahk_script(ahk_path, app, command),
+            encoding="utf-8",
+        )
+
+        logger.info(f"App Launcher launching Chrome via AutoHotkey: {script_path}")
+        subprocess.Popen([ahk_path, str(script_path)], shell=False)
+
+    def _resolve_ahk_path(self, configured_path: str) -> str:
+        expanded = os.path.expandvars(str(configured_path or "")).strip().strip('"')
+        candidates = []
+        if expanded:
+            candidates.append(expanded)
+
+        for env_key in ("ProgramFiles", "ProgramFiles(x86)"):
+            root = os.environ.get(env_key)
+            if root:
+                candidates.extend(
+                    [
+                        os.path.join(root, "AutoHotkey", "AutoHotkey.exe"),
+                        os.path.join(root, "AutoHotkey", "v2", "AutoHotkey64.exe"),
+                        os.path.join(root, "AutoHotkey", "v2", "AutoHotkey.exe"),
+                    ]
+                )
+
+        for name in ("AutoHotkey.exe", "AutoHotkey64.exe", "AutoHotkey32.exe"):
+            found = shutil.which(name)
+            if found:
+                candidates.append(found)
+
+        return next((path for path in candidates if path and os.path.exists(path)), "")
+
+    def _build_ahk_script(self, ahk_path: str, app: dict, command: list[str]) -> str:
+        command_line = subprocess.list2cmdline(command)
+        exe_name = os.path.basename(command[0]) or "chrome.exe"
+        target = f"ahk_exe {exe_name}"
+        x = int(app.get("window_x", 200))
+        y = int(app.get("window_y", 200))
+        width = max(1, int(app.get("window_width", 160)))
+        height = max(1, int(app.get("window_height", 400)))
+        always_on_top = bool(app.get("always_on_top", True))
+
+        if self._looks_like_ahk_v2(ahk_path):
+            lines = [
+                "#SingleInstance Force",
+                f"Run {self._ahk_v2_quote(command_line)}",
+                f"WinWaitActive {self._ahk_v2_quote(target)},, 10",
+                f"WinMove {x}, {y}, {width}, {height}, {self._ahk_v2_quote(target)}",
+            ]
+            if always_on_top:
+                lines.append(f"WinSetAlwaysOnTop \"On\", {self._ahk_v2_quote(target)}")
+            return "\n".join(lines) + "\n"
+
+        lines = [
+            "#SingleInstance Force",
+            f"Run, % {self._ahk_v1_quote(command_line)}",
+            f"WinWaitActive, {target},, 10",
+            f"WinMove, {target},,{x},{y},{width},{height}",
+        ]
+        if always_on_top:
+            lines.append(f"WinSet, AlwaysOnTop, On, {target}")
+        return "\n".join(lines) + "\n"
+
+    def _looks_like_ahk_v2(self, ahk_path: str) -> bool:
+        normalized = str(ahk_path or "").replace("/", "\\").lower()
+        return "\\v2\\" in normalized
+
+    def _ahk_v1_quote(self, value: str) -> str:
+        return '"' + str(value).replace('"', '""') + '"'
+
+    def _ahk_v2_quote(self, value: str) -> str:
+        return '"' + str(value).replace("`", "``").replace('"', '`"') + '"'

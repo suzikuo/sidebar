@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import socket
 import sys
 import time
 from ctypes import wintypes
@@ -14,6 +15,9 @@ IF_OPER_STATUS_UP = 1
 IF_TYPE_SOFTWARE_LOOPBACK = 24
 IF_MAX_STRING_SIZE = 256
 IF_MAX_PHYS_ADDRESS_LENGTH = 32
+NETWORK_SCOPE_DEFAULT_ROUTE = "default_route"
+NETWORK_SCOPE_ALL_ACTIVE = "all_active"
+DEFAULT_ROUTE_PROBE_ADDRESS = "1.1.1.1"
 
 
 class NetworkMonitorError(RuntimeError):
@@ -98,10 +102,24 @@ class _MibIfTable2(ctypes.Structure):
     ]
 
 
-class WindowsNetworkMonitor:
-    """Aggregate byte counters for all active, non-loopback interfaces."""
+class _SockaddrIn(ctypes.Structure):
+    _fields_ = [
+        ("sin_family", wintypes.USHORT),
+        ("sin_port", wintypes.USHORT),
+        ("sin_addr", ctypes.c_ubyte * 4),
+        ("sin_zero", ctypes.c_ubyte * 8),
+    ]
 
-    def __init__(self, get_if_table2=None, free_mib_table=None):
+
+class WindowsNetworkMonitor:
+    """Read byte counters from the default-route or all active interfaces."""
+
+    def __init__(
+        self,
+        get_if_table2=None,
+        free_mib_table=None,
+        get_best_interface_ex=None,
+    ):
         if get_if_table2 is None or free_mib_table is None:
             if sys.platform != "win32":
                 raise NetworkMonitorError("Windows IP Helper API is only available on Windows.")
@@ -112,10 +130,17 @@ class WindowsNetworkMonitor:
             free_mib_table = iphlpapi.FreeMibTable
             free_mib_table.argtypes = [ctypes.c_void_p]
             free_mib_table.restype = None
+            get_best_interface_ex = iphlpapi.GetBestInterfaceEx
+            get_best_interface_ex.argtypes = [
+                ctypes.c_void_p,
+                ctypes.POINTER(wintypes.DWORD),
+            ]
+            get_best_interface_ex.restype = wintypes.DWORD
         self._get_if_table2 = get_if_table2
         self._free_mib_table = free_mib_table
+        self._get_best_interface_ex = get_best_interface_ex
 
-    def read_counters(self) -> TrafficCounters:
+    def read_counters(self, scope=NETWORK_SCOPE_DEFAULT_ROUTE) -> TrafficCounters:
         table = ctypes.POINTER(_MibIfTable2)()
         result = self._get_if_table2(ctypes.byref(table))
         if result != NO_ERROR:
@@ -127,16 +152,51 @@ class WindowsNetworkMonitor:
             count = int(table.contents.NumEntries)
             rows_address = ctypes.addressof(table.contents) + _MibIfTable2.Table.offset
             rows = (_MibIfRow2 * count).from_address(rows_address)
-            upload = 0
-            download = 0
-            for row in rows:
-                if not self._is_countable(row):
-                    continue
-                upload += int(row.OutOctets)
-                download += int(row.InOctets)
-            return TrafficCounters(upload_bytes=upload, download_bytes=download)
+            interface_index = (
+                self._best_default_interface_index()
+                if scope == NETWORK_SCOPE_DEFAULT_ROUTE
+                else None
+            )
+            counters, matched = self._aggregate_counters(rows, interface_index)
+            if interface_index is None or matched:
+                return counters
+            return self._aggregate_counters(rows)[0]
         finally:
             self._free_mib_table(table)
+
+    def _best_default_interface_index(self) -> int | None:
+        if self._get_best_interface_ex is None:
+            return None
+        destination = _SockaddrIn()
+        destination.sin_family = socket.AF_INET
+        ctypes.memmove(
+            destination.sin_addr,
+            socket.inet_aton(DEFAULT_ROUTE_PROBE_ADDRESS),
+            4,
+        )
+        interface_index = wintypes.DWORD(0)
+        result = self._get_best_interface_ex(
+            ctypes.byref(destination),
+            ctypes.byref(interface_index),
+        )
+        if result != NO_ERROR or interface_index.value == 0:
+            return None
+        return int(interface_index.value)
+
+    @classmethod
+    def _aggregate_counters(cls, rows, interface_index=None):
+        upload = 0
+        download = 0
+        matched = False
+        for row in rows:
+            if not cls._is_countable(row):
+                continue
+            if interface_index is not None and int(row.InterfaceIndex) != interface_index:
+                continue
+            matched = True
+            upload += int(row.OutOctets)
+            download += int(row.InOctets)
+        return TrafficCounters(upload, download), matched
 
     @staticmethod
     def _is_countable(row: _MibIfRow2) -> bool:
@@ -173,6 +233,8 @@ class TrafficRateSampler:
 
 __all__ = [
     "NetworkMonitorError",
+    "NETWORK_SCOPE_ALL_ACTIVE",
+    "NETWORK_SCOPE_DEFAULT_ROUTE",
     "TrafficCounters",
     "TrafficRates",
     "TrafficRateSampler",
