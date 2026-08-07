@@ -238,7 +238,7 @@ class AppLauncher(PluginBase):
                 f"WinMove {x}, {y}, {width}, {height}, {self._ahk_v2_quote(target)}",
             ]
             if always_on_top:
-                lines.append(f"WinSetAlwaysOnTop \"On\", {self._ahk_v2_quote(target)}")
+                lines.append(f"WinSetAlwaysOnTop 1, {self._ahk_v2_quote(target)}")
             return "\n".join(lines) + "\n"
 
         lines = [

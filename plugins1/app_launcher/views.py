@@ -1,15 +1,16 @@
 import os
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
-    QSpinBox,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -119,28 +120,32 @@ class AppEditDialog(MessageBoxBase):
         self.ahkPathLayout.addWidget(self.browseAhkBtn)
 
         self.windowRow = QWidget(self)
-        self.windowLayout = QHBoxLayout(self.windowRow)
+        self.windowLayout = QGridLayout(self.windowRow)
         self.windowLayout.setContentsMargins(0, 0, 0, 0)
-        self.windowLayout.setSpacing(8)
+        self.windowLayout.setHorizontalSpacing(8)
+        self.windowLayout.setVerticalSpacing(4)
         self.xSpin = self._spin_box(0, 9999, 200)
         self.ySpin = self._spin_box(0, 9999, 200)
         self.widthSpin = self._spin_box(1, 9999, 160)
         self.heightSpin = self._spin_box(1, 9999, 400)
-        for label, spin in (
-            ("X", self.xSpin),
-            ("Y", self.ySpin),
-            ("W", self.widthSpin),
-            ("H", self.heightSpin),
+        for row, label, spin in (
+            (0, "X", self.xSpin),
+            (0, "Y", self.ySpin),
+            (1, "W", self.widthSpin),
+            (1, "H", self.heightSpin),
         ):
-            self.windowLayout.addWidget(BodyLabel(label, self.windowRow))
-            self.windowLayout.addWidget(spin)
-        self.windowLayout.addStretch(1)
+            label_widget = BodyLabel(label, self.windowRow)
+            label_widget.setFixedWidth(14)
+            column = 0 if label in ("X", "W") else 2
+            self.windowLayout.addWidget(label_widget, row, column)
+            self.windowLayout.addWidget(spin, row, column + 1)
+        self.windowLayout.setColumnStretch(4, 1)
 
         self.alwaysOnTopCheck = QCheckBox("Always on top", self)
 
         self.formLayout = QFormLayout()
         self.formLayout.setContentsMargins(0, 8, 0, 0)
-        self.formLayout.setSpacing(10)
+        self.formLayout.setSpacing(8)
         self.formLayout.addRow("Type:", self.typeCombo)
         self.formLayout.addRow("Name:", self.nameEdit)
         self.formLayout.addRow("Path:", self.pathRow)
@@ -154,17 +159,18 @@ class AppEditDialog(MessageBoxBase):
         self.viewLayout.addLayout(self.formLayout)
         self.yesButton.setText("Save")
         self.cancelButton.setText("Cancel")
-        self.widget.setMinimumWidth(560)
+        self.widget.setMinimumWidth(420)
 
         self._load_data(app_data, initial_type)
         self._sync_type_fields()
 
-    def _spin_box(self, minimum: int, maximum: int, value: int) -> QSpinBox:
-        spin = QSpinBox(self)
-        spin.setRange(minimum, maximum)
-        spin.setValue(value)
-        spin.setFixedWidth(72)
-        return spin
+    def _spin_box(self, minimum: int, maximum: int, value: int) -> LineEdit:
+        edit = LineEdit(self)
+        edit.setValidator(QIntValidator(minimum, maximum, self))
+        edit.setText(str(value))
+        edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        edit.setFixedWidth(72)
+        return edit
 
     def _select_type(self, app_type: str):
         for index in range(self.typeCombo.count()):
@@ -179,10 +185,10 @@ class AppEditDialog(MessageBoxBase):
             self.argsEdit.setPlainText(app_data.get("arguments", ""))
             self.useAhkCheck.setChecked(bool(app_data.get("use_ahk", False)))
             self.ahkPathEdit.setText(app_data.get("ahk_path", ""))
-            self.xSpin.setValue(int(app_data.get("window_x", 200)))
-            self.ySpin.setValue(int(app_data.get("window_y", 200)))
-            self.widthSpin.setValue(int(app_data.get("window_width", 160)))
-            self.heightSpin.setValue(int(app_data.get("window_height", 400)))
+            self.xSpin.setText(str(int(app_data.get("window_x", 200))))
+            self.ySpin.setText(str(int(app_data.get("window_y", 200))))
+            self.widthSpin.setText(str(int(app_data.get("window_width", 160))))
+            self.heightSpin.setText(str(int(app_data.get("window_height", 400))))
             self.alwaysOnTopCheck.setChecked(bool(app_data.get("always_on_top", True)))
             return
 
@@ -242,12 +248,18 @@ class AppEditDialog(MessageBoxBase):
             "arguments": self.argsEdit.toPlainText().strip(),
             "use_ahk": app_type == self.APP_TYPE_CHROME and self.useAhkCheck.isChecked(),
             "ahk_path": self.ahkPathEdit.text().strip(),
-            "window_x": self.xSpin.value(),
-            "window_y": self.ySpin.value(),
-            "window_width": self.widthSpin.value(),
-            "window_height": self.heightSpin.value(),
+            "window_x": self._number_value(self.xSpin, 200),
+            "window_y": self._number_value(self.ySpin, 200),
+            "window_width": self._number_value(self.widthSpin, 160, 1),
+            "window_height": self._number_value(self.heightSpin, 400, 1),
             "always_on_top": self.alwaysOnTopCheck.isChecked(),
         }
+
+    def _number_value(self, edit: LineEdit, default: int, minimum: int = 0) -> int:
+        text = edit.text().strip()
+        if not text:
+            return default
+        return max(minimum, int(text))
 
     def validate(self):
         data = self.get_data()
