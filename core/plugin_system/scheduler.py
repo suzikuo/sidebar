@@ -115,8 +115,7 @@ class PluginScheduler(QObject):
 
         self._active_timers: List[QTimer] = []
         self._active_tasks: Set[AsyncTaskHandle] = set()
-        self._thread_pool = QThreadPool()
-        self._thread_pool.setMaxThreadCount(max_threads)
+        self._thread_pool = None
         self._lock = threading.RLock()
         self._shutdown = False
 
@@ -158,13 +157,15 @@ class PluginScheduler(QObject):
         with self._lock:
             if self._shutdown:
                 raise RuntimeError(f"Plugin scheduler is closed: {self.plugin_id}")
+            if self._thread_pool is None:
+                self._thread_pool = QThreadPool()
+                self._thread_pool.setMaxThreadCount(self.max_threads)
             self._active_tasks.add(task)
-
-        try:
-            self._thread_pool.start(worker)
-        except Exception:
-            task._finish()
-            raise
+            try:
+                self._thread_pool.start(worker)
+            except Exception:
+                task._finish()
+                raise
         return task
 
     def request_ui_update(self, widget_update_func: Callable) -> bool:
@@ -188,6 +189,7 @@ class PluginScheduler(QObject):
             timers = list(self._active_timers)
             self._active_timers.clear()
             tasks = list(self._active_tasks)
+            thread_pool = self._thread_pool
 
         for timer in timers:
             try:
@@ -199,7 +201,11 @@ class PluginScheduler(QObject):
         for task in tasks:
             task.cancel()
 
-        completed = self._thread_pool.waitForDone(timeout_ms)
+        completed = (
+            True
+            if thread_pool is None
+            else thread_pool.waitForDone(timeout_ms)
+        )
         if not completed:
             logger.warning(
                 "Plugin %s still has %s async task(s) after %sms shutdown timeout.",

@@ -3,7 +3,7 @@ import time
 import unittest
 from types import SimpleNamespace
 
-from builtin_plugins.network_monitor.history_api import TrafficHistoryApi
+from plugins.network_monitor.history_api import TrafficHistoryApi
 
 
 class _Context:

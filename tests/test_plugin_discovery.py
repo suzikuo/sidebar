@@ -115,7 +115,7 @@ class PathManagerPluginPathsTest(unittest.TestCase):
             temp_root = Path(tmp)
             base_dir = temp_root / "app"
             app_data = temp_root / "appdata"
-            bundled = base_dir / "builtin_plugins"
+            bundled = base_dir / "plugins"
             bundled.mkdir(parents=True)
 
             with patch.object(PathManager, "get_base_dir", return_value=base_dir):
@@ -139,7 +139,7 @@ class PathManagerPluginPathsTest(unittest.TestCase):
                     paths = PathManager.get_plugin_search_paths()
 
             self.assertEqual(paths, [app_data / "user-plugins"])
-            self.assertFalse((base_dir / "builtin_plugins").exists())
+            self.assertFalse((base_dir / "plugins").exists())
 
 
 class ManifestLoaderSecurityTest(unittest.TestCase):

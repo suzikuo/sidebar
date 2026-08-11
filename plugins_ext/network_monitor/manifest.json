@@ -1,0 +1,38 @@
+{
+  "manifest_version": 2,
+  "id": "network_monitor",
+  "name": "网络监控",
+  "version": "1.1.0",
+  "description": "查看 Windows 应用实时流量、独立来源历史趋势和可配置悬浮网速。",
+  "author": "Agile Tiles",
+  "entry": "plugin.py",
+  "class": "NetworkMonitorPlugin",
+  "api_version": "1.0",
+  "permissions": [
+    "state",
+    "ui"
+  ],
+  "compatibility": {
+    "app": ">=1.0.0",
+    "python_abi": "cp311",
+    "platform": "win_amd64"
+  },
+  "dependencies": {
+    "host": [
+      "PySide6==6.11.1",
+      "PySide6-Fluent-Widgets==1.11.0"
+    ],
+    "python": [
+      "pywintrace==0.2.0"
+    ],
+    "lock": "dependencies.lock.json",
+    "plugins": {}
+  },
+  "files": {},
+  "native_modules": [],
+  "requires_restart": true,
+  "ui": {
+    "type": "native"
+  },
+  "capabilities": []
+}

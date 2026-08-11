@@ -2,15 +2,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from builtin_plugins.network_monitor.history import TrafficHistoryService
-from builtin_plugins.network_monitor.history_models import TrafficRecord
+from plugins.network_monitor.history_models import TrafficRecord
+from plugins.network_monitor.history_repository import TrafficHistoryRepository
 
 
-class TrafficHistoryServiceTest(unittest.TestCase):
+class TrafficHistoryRepositoryTest(unittest.TestCase):
     def test_sources_are_separate_and_rollups_are_idempotent(self):
         base = 1_700_000_000
         with tempfile.TemporaryDirectory() as temp_dir:
-            service = TrafficHistoryService(Path(temp_dir) / "traffic.db", clock=lambda: base + 60)
+            service = TrafficHistoryRepository(
+                Path(temp_dir) / "traffic.db", clock=lambda: base + 60
+            )
             try:
                 service.submit(
                     (
@@ -38,7 +40,9 @@ class TrafficHistoryServiceTest(unittest.TestCase):
     def test_second_rows_expire_after_one_hour_but_minute_rollup_remains(self):
         base = 1_700_000_000
         with tempfile.TemporaryDirectory() as temp_dir:
-            service = TrafficHistoryService(Path(temp_dir) / "traffic.db", clock=lambda: base + 3700)
+            service = TrafficHistoryRepository(
+                Path(temp_dir) / "traffic.db", clock=lambda: base + 3700
+            )
             try:
                 service.submit(
                     (
@@ -57,7 +61,7 @@ class TrafficHistoryServiceTest(unittest.TestCase):
         now = 1_750_000_000
         sample_time = now - 40 * 24 * 60 * 60
         with tempfile.TemporaryDirectory() as temp_dir:
-            service = TrafficHistoryService(
+            service = TrafficHistoryRepository(
                 Path(temp_dir) / "traffic.db",
                 clock=lambda: now,
             )

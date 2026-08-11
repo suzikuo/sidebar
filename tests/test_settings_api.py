@@ -9,9 +9,10 @@ class _SettingsManagerStub:
         "general": {"enable_notifications": True, "auto_hide_delay": 1000},
         "appearance": {
             "theme_mode": "dark",
+            "ui_scale": "auto",
             "sidebar_width": 500,
             "sidebar_bg_opacity": 0.9,
-            "accent_color": "#FF6B9D",
+            "accent_color": "#006874",
         },
         "plugins": {"disabled": []},
         "notifications": {"enabled": True},
@@ -130,6 +131,22 @@ class SettingsApiServiceTest(unittest.TestCase):
             for option in result["appearance"]["items"]["sidebar_position"]["options"]
         }
         self.assertIn("top", positions)
+        scale_definition = result["appearance"]["items"]["ui_scale"]
+        self.assertEqual(
+            [option["value"] for option in scale_definition["options"]],
+            ["auto", "100", "125", "150", "175", "200"],
+        )
+        self.assertTrue(scale_definition["requiresRestart"])
+
+    def test_ui_scale_rejects_unknown_percentage(self):
+        result = self.registry.invoke(
+            self.writer,
+            "core/settings/set",
+            {"category": "appearance", "key": "ui_scale", "value": "250"},
+        )
+
+        self.assertEqual(result["code"], "INVALID_REQUEST")
+        self.assertEqual(self.manager.settings["appearance"]["ui_scale"], "auto")
 
     def test_batch_validates_every_change_before_writing(self):
         route = "core/settings/batch"

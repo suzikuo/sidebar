@@ -1,3 +1,4 @@
+import copy
 import threading
 from typing import Any, Dict
 
@@ -216,7 +217,9 @@ class PluginContext:
 
             def get(self, key: str, default: Any = None) -> Any:
                 self.context._ensure_open()
-                return self.store.get_plugin_state(self.plugin_id, key, default)
+                return copy.deepcopy(
+                    self.store.get_plugin_state(self.plugin_id, key, default)
+                )
 
             def set(self, key: str, value: Any):
                 self.context._ensure_open()

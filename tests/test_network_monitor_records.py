@@ -1,6 +1,6 @@
 import unittest
 
-from builtin_plugins.network_monitor.records import MinuteHistoryBuffer
+from plugins.network_monitor.records import MinuteHistoryBuffer
 
 
 def _record(timestamp, upload, download, upload_rate, download_rate):

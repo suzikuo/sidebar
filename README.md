@@ -13,7 +13,7 @@
 
 ## 项目概述
 
-Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的无边框桌面侧边栏工具。插件入口在顶部或屏幕侧边自然滚动，Settings 固定；插件详情继续使用紧凑的原生 Qt 界面。
+Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的无边框桌面侧边栏工具。界面采用 Material 3 设计令牌和极简信息层级，插件入口在顶部或屏幕侧边自然滚动，Settings 固定；插件详情继续使用紧凑的原生 Qt 界面。
 
 ### 主要特性
 - 🎨 Fluent Design 现代化界面
@@ -31,7 +31,7 @@ Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的无边
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | Python | 3.11 | 编程语言与插件 ABI |
-| PySide6 | 6.10.2 | Qt6 for Python 绑定 |
+| PySide6 | 6.11.1 | Qt6 for Python，Windows WebView2 宿主 |
 | PySide6-Fluent-Widgets | 1.11.0 | Fluent Design 组件库 |
 | SQLite | - | 本地数据存储 |
 | aiohttp | - | 异步本地网关、HTTP/WebSocket 反向代理 |
@@ -51,48 +51,43 @@ Agile Tiles 是一个基于 **PySide6** 和 **PySide6-Fluent-Widgets** 的无边
 
 ```
 sidebar/
-├── main.py                 # 应用入口点
-├── requirements.txt        # 依赖列表
-├── core/                   # 核心模块
-│   ├── plugin_system/      # 插件系统
-│   │   ├── plugin_manager.py   # 插件管理器
-│   │   ├── plugin_base.py      # 插件基类
-│   │   └── event_bus.py        # 事件总线
-│   ├── settings/           # 设置系统
-│   │   ├── settings_manager.py     # 设置管理器
-│   │   ├── fluent_settings_card.py # Fluent 设置界面
-│   │   └── settings_card.py        # 传统设置界面
-│   ├── window_system/      # 窗口系统
-│   │   └── main_window.py      # 主窗口 (FluentWindow)
-│   ├── ui_kernel/          # UI 核心
-│   │   ├── theme_engine.py     # 主题引擎
-│   │   ├── design_tokens.py    # 设计令牌
-│   │   └── view_host/          # 视图宿主
-│   ├── data_layer/         # 数据层
-│   │   └── data_service.py     # 数据服务
-│   └── state_store.py      # 状态持久化
-├── builtin_plugins/        # 内置插件（源码运行和宿主发布时直接加载）
-├── plugins1/               # 独立插件包源码（只生成 .atplugin）
-├── build_plugins.py        # 批量生成独立 .atplugin
-└── ui/                     # UI 组件
-    └── components/         # 公共组件
+├── app/                         # QApplication 之后的宿主编排与生命周期
+│   ├── bootstrap.py             # 重启协议与 Qt 启动顺序
+│   ├── application.py           # 服务装配、窗口协调、托盘和生命周期
+│   └── dialogs.py               # 宿主对话框
+├── core/                        # 不依赖 app 的稳定核心能力
+│   ├── plugin_system/           # 插件发现、安装、依赖和生命周期
+│   ├── settings/                # 设置模型与原生快速设置
+│   ├── window_system/           # 侧边栏、详情页和控制中心窗口
+│   ├── ui_kernel/components/    # 宿主共享 Qt 组件
+│   └── data_layer/              # 路径、仓储和数据服务
+├── plugins/                     # 唯一的仓库插件源码根目录
+├── frontend/
+│   ├── apps/                    # settings、control-center、gateway
+│   ├── shared/platform/         # 共用 WebChannel 适配器与契约
+│   └── tests/                   # 前端模型和适配器测试
+├── resources/web/control-center/ # 宿主内置 Web 运行资源
+├── tools/                       # 构建、插件打包和诊断实现
+├── examples/plugins/            # 插件开发示例
+├── tests/                       # Python 测试和架构边界测试
+├── main.py                      # 最小兼容启动器
+├── build.py                     # 宿主构建兼容入口
+└── build_plugins.py             # 插件批量构建兼容入口
 ```
 
 ### 核心模块说明
 
-#### 1. main.py - 应用入口
+#### 1. app - 应用层
 ```python
-# 关键点：QApplication 必须在模块级别创建，在导入 qfluentwidgets 之前
-from PySide6.QtWidgets import QApplication
-app = QApplication(sys.argv)  # 第22行
-
-# 然后才能导入 qfluentwidgets
-from qfluentwidgets import setTheme, Theme, setThemeColor
+# main.py 只委托启动；bootstrap 先创建 QApplication，随后导入 UI 编排层。
+from app.bootstrap import main
 ```
 
+`core/` 和插件不得导入 `app/`。少量需要宿主服务的兼容代码通过 `core.runtime_context` 获取已注册实例，不再读取 `__main__` 全局变量。
+
 #### 2. PluginManager - 插件管理器
-- 先发现随程序提供的 `builtin_plugins/`，再发现 AppData `user-plugins/` 下已安装的插件
-- 用户插件与内置插件 ID 相同时，用户插件优先；仓库 `plugins1/` 不参与运行时扫描
+- 先发现随程序提供的 `plugins/`，再发现 AppData `user-plugins/` 下已安装的插件
+- 用户插件与仓库插件 ID 相同时，用户插件优先
 - 根据 manifest 前置依赖拓扑加载插件
 - 管理安装、更新、启停、回滚和卸载事务
 
@@ -121,6 +116,7 @@ Agile Tiles 基于插件化架构，以下功能以独立 `.atplugin` 提供，�
 - 🌐 **Gateway Manager (本地网关管理)**：可视化管理多个本地监听网关与多个 Cloudflare Tunnel，支持多 Tunnel 指向同一 Router 端口、Path Prefix 路由、HTTP 反向代理、流式响应和 WebSocket 代理。
 - 🚀 **App Launcher (应用启动器)**：便于存放和快速拉起常用的本地应用与常用目录。
 - 🔖 **Bookmarks (书签管理)**：可分门别类地收纳高频访问的开发测试网页链接与系统命令书签。
+- 📊 **Network Monitor (网络监控)**：显示 Windows 应用流量、来源历史趋势与可配置悬浮网速。
 
 ### 2. 主题系统
 ```python
@@ -132,7 +128,7 @@ setTheme(Theme.LIGHT)   # 浅色主题
 setTheme(Theme.AUTO)    # 跟随系统
 
 # 设置强调色
-setThemeColor("#FF6B9D")  # 自定义颜色
+setThemeColor("#006874")  # 默认 Material 3 teal 强调色
 ```
 
 ### 3. 插件系统接入点
@@ -160,7 +156,8 @@ class TodoPlugin(PluginBase):
 - 侧边栏 Settings 只保留主题、侧边栏行为和通知等高频快速配置。
 - 托盘图标右键选择“控制中心”，可进入完整设置、已安装插件、官方市场和关于/诊断页面。
 - 官方市场读取发行版随附且经过校验的 `.atplugin` 包；安装、更新、卸载和回滚继续遵循现有事务与重启语义。
-- 控制中心是本地 Vue 页面，通过受限 QWebChannel API 调用 Python，不启动本地 HTTP 服务，也不向前端暴露插件包路径。
+- 控制中心是本地 Vue 页面，通过 QWebView 的进程内桥调用 Python。发布运行时不启动 HTTP/WebSocket 监听端口，也不向前端暴露插件包路径。
+- 设置、控制中心和 Web 插件的生产页面均构建为单文件 HTML，经文件哈希和大小校验后作为内存文档加载；生产 CSP 使用 `connect-src 'none'`。
 
 原生快速设置使用 `SettingCardGroup` 组织设置项：
 使用 `SettingCardGroup` 组织设置项：
@@ -195,7 +192,7 @@ push_card = PushSettingCard(
 python .\build_plugins.py
 ```
 
-输出位于 `dist/plugins/`。这些包是独立插件介质，不会被 `python .\build.py` 复制到宿主目录；可以通过控制中心“官方市场”目录或“导入插件包”安装。应用不会从宿主发布目录静默安装。模板、单包打包、安装、数据边界和当前依赖限制见 [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md)。
+输出位于 `dist/plugins/`。`plugins/` 源码会随宿主作为默认插件加载，这些 `.atplugin` 则是用于导入、更新和官方目录分发的独立介质。开发示例、单包打包、安装和数据边界见 [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md)。
 
 宿主与插件的构建命令分开：
 
@@ -203,9 +200,14 @@ python .\build_plugins.py
 # 只构建 Agile Tiles 宿主
 python .\build.py
 
+# 构建 Windows WebView2 宿主，使用系统 Evergreen Runtime
+python .\build.py --profile lite
+
 # 单独生成插件包（可选）
 python .\build_plugins.py
 ```
+
+`full` 和 `lite` 参数仅为旧脚本兼容保留，现在都构建同一个 WebView2 版本。网页界面按需创建，不会在开机自启阶段预加载；目标机器需要安装 Microsoft Edge WebView2 Evergreen Runtime。
 
 ---
 

@@ -15,7 +15,7 @@ from packaging.utils import canonicalize_name
 from PyInstaller.utils.hooks import copy_metadata
 
 from core.plugin_system.host_environment import HOST_DISTRIBUTIONS
-from build_support.pyinstaller_pruning import prune_qt_binaries, prune_qt_data
+from tools.build_support.pyinstaller_pruning import prune_qt_binaries, prune_qt_data
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -29,11 +29,11 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
             for name in HOST_DISTRIBUTIONS
         }
         tree_entries = {
-            "ui": [("ui/widget.py", "ui/widget.py", "DATA")],
-            "builtin_plugins": [
+            "resources": [("resources/web/index.html", "resources/web/index.html", "DATA")],
+            "plugins": [
                 (
-                    "builtin_plugins/sample/plugin.py",
-                    "builtin_plugins/sample/plugin.py",
+                    "plugins/sample/plugin.py",
+                    "plugins/sample/plugin.py",
                     "DATA",
                 )
             ],
@@ -42,6 +42,7 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         def analysis(*args, **kwargs):
             captured["datas"] = tuple(kwargs["datas"])
             captured["hiddenimports"] = tuple(kwargs["hiddenimports"])
+            captured["excludes"] = tuple(kwargs["excludes"])
             return SimpleNamespace(
                 pure=(),
                 scripts=(),
@@ -92,7 +93,7 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         collected_submodules.assert_not_called()
         self.assertEqual(
             [call.args[0] for call in collected_tree.call_args_list],
-            ["ui", "builtin_plugins"],
+            ["resources", "plugins"],
         )
         for call in collected_tree.call_args_list:
             self.assertEqual(
@@ -105,15 +106,18 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         )
         self.assertIn("core.security", captured["hiddenimports"])
         self.assertIn("core.web_ui.factory", captured["hiddenimports"])
-        self.assertIn("PySide6.QtWebChannel", captured["hiddenimports"])
-        self.assertIn("PySide6.QtWebEngineCore", captured["hiddenimports"])
-        self.assertIn("PySide6.QtWebEngineWidgets", captured["hiddenimports"])
+        self.assertIn("core.web_ui.contracts", captured["hiddenimports"])
+        self.assertIn("core.web_ui.web_plugin_host", captured["hiddenimports"])
+        self.assertIn("PySide6.QtWebView", captured["hiddenimports"])
+        self.assertNotIn("PySide6.QtWebSockets", captured["hiddenimports"])
+        self.assertNotIn("PySide6.QtWebEngineCore", captured["hiddenimports"])
+        self.assertNotIn("PySide6.QtWebEngineWidgets", captured["hiddenimports"])
         self.assertFalse(
             any(destination == "plugins" for _, destination in captured["datas"])
         )
-        self.assertIn(("ui/widget.py", "ui"), captured["datas"])
+        self.assertIn(("resources/web/index.html", "resources/web"), captured["datas"])
         self.assertIn(
-            ("builtin_plugins/sample/plugin.py", "builtin_plugins/sample"),
+            ("plugins/sample/plugin.py", "plugins/sample"),
             captured["datas"],
         )
         self.assertIn(("VERSION", "."), captured["datas"])
@@ -123,6 +127,8 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
             metadata_datas["PySide6-Fluent-Widgets"][0],
             captured["datas"],
         )
+        self.assertIn("PIL.AvifImagePlugin", captured["excludes"])
+        self.assertIn("qfluentwidgets.multimedia", captured["excludes"])
         self.assertFalse(
             any(
                 source == "core" or destination == "core"
@@ -148,12 +154,6 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
                 ]
             ),
             [
-                ("host/qtwebengine_devtools_resources.debug.pak", "x", "DATA"),
-                ("PySide6/resources/qtwebengine_devtools_resources.pak", "x", "DATA"),
-                ("PySide6/resources/qtwebengine_resources.pak", "x", "DATA"),
-                ("PySide6/qml/QtQuick/Controls.qml", "x", "DATA"),
-                ("PySide6/qml/QtWebEngine/Delegates.qml", "x", "DATA"),
-                ("PySide6/translations/qtwebengine_locales/zh-CN.pak", "x", "DATA"),
                 ("PySide6/translations/qtbase_zh_CN.qm", "x", "DATA"),
             ],
         )
@@ -164,7 +164,30 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
                     ("PySide6/Qt6Quick.dll", "x", "BINARY"),
                 ]
             ),
-            [("PySide6/Qt6Quick.dll", "x", "BINARY")],
+            [],
+        )
+
+        self.assertEqual(
+            prune_qt_binaries(
+                [
+                    ("PySide6/Qt6WebEngineCore.dll", "x", "BINARY"),
+                    ("PySide6/Qt6Quick.dll", "x", "BINARY"),
+                    ("PySide6/Qt6Core.dll", "x", "BINARY"),
+                ],
+                include_webengine=False,
+            ),
+            [("PySide6/Qt6Core.dll", "x", "BINARY")],
+        )
+        self.assertEqual(
+            prune_qt_data(
+                [
+                    ("PySide6/resources/icudtl.dat", "x", "DATA"),
+                    ("PySide6/qml/QtQuick/Controls.qml", "x", "DATA"),
+                    ("resources/app.json", "x", "DATA"),
+                ],
+                include_webengine=False,
+            ),
+            [("resources/app.json", "x", "DATA")],
         )
 
     def test_pruning_preserves_non_list_entry_container(self):
@@ -187,16 +210,13 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         self.assertIsInstance(binaries, TOC)
         self.assertEqual(
             binaries,
-            [("PySide6/Qt6Quick.dll", "x", "BINARY")],
+            [],
         )
         self.assertIsInstance(datas, tuple)
-        self.assertEqual(
-            datas,
-            (("PySide6/resources/qtwebengine_resources.pak", "x", "DATA"),),
-        )
+        self.assertEqual(datas, ())
 
     def test_build_entry_delegates_to_the_reviewed_spec(self):
-        namespace = runpy.run_path(str(PROJECT_ROOT / "build.py"))
+        namespace = runpy.run_path(str(PROJECT_ROOT / "tools" / "build_host.py"))
         self.assertNotIn("build_plugin_packages", namespace)
 
         with patch("subprocess.run") as run:
@@ -214,12 +234,33 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
             ],
         )
         self.assertEqual(Path(command[5]), PROJECT_ROOT / "AgileTiles.spec")
-        self.assertEqual(run.call_args.kwargs, {"cwd": PROJECT_ROOT, "check": True})
+        self.assertEqual(run.call_args.kwargs["cwd"], PROJECT_ROOT)
+        self.assertTrue(run.call_args.kwargs["check"])
+        self.assertEqual(
+            run.call_args.kwargs["env"]["AGILE_TILES_BUILD_PROFILE"],
+            "full",
+        )
+
+    def test_build_entry_accepts_lite_profile(self):
+        namespace = runpy.run_path(str(PROJECT_ROOT / "tools" / "build_host.py"))
+
+        with patch("subprocess.run") as run:
+            namespace["build"]("lite")
+
+        self.assertEqual(
+            run.call_args.kwargs["env"]["AGILE_TILES_BUILD_PROFILE"],
+            "lite",
+        )
 
     def test_copied_metadata_exposes_versions_required_by_template(self):
         template = json.loads(
-            (PROJECT_ROOT / "templates" / "hello_plugin" / "manifest.json")
-            .read_text(encoding="utf-8")
+            (
+                PROJECT_ROOT
+                / "examples"
+                / "plugins"
+                / "hello_plugin"
+                / "manifest.json"
+            ).read_text(encoding="utf-8")
         )
         requirements = tuple(
             Requirement(value) for value in template["dependencies"]["host"]

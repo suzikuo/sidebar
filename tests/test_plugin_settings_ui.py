@@ -172,6 +172,35 @@ class PluginSettingsUiTest(unittest.TestCase):
             70 + 18 * blocked_card.contentLabel.text().count("\n"),
         )
 
+    @patch("qfluentwidgets.InfoBar.success")
+    def test_display_scale_selector_persists_supported_value(self, success_bar):
+        self.assertEqual(
+            [self.widget.ui_scale_combo.itemText(index) for index in range(6)],
+            ["自动（推荐）", "100%", "125%", "150%", "175%", "200%"],
+        )
+
+        self.widget.ui_scale_combo.setCurrentIndex(3)
+        self.app.processEvents()
+
+        self.assertEqual(
+            self.widget.settings_manager.settings[("appearance", "ui_scale")],
+            "150",
+        )
+        success_bar.assert_called_once()
+
+    def test_control_center_card_emits_open_request(self):
+        requests = []
+        self.widget.open_control_center_requested.connect(
+            lambda: requests.append("open")
+        )
+
+        self.assertEqual(self.widget.control_center_card.titleLabel.text(), "控制中心")
+        self.assertEqual(self.widget.control_center_card.button.text(), "打开")
+
+        self.widget.control_center_card.clicked.emit()
+
+        self.assertEqual(requests, ["open"])
+
     @patch("qfluentwidgets.InfoBar.error")
     def test_failed_toggle_uses_manager_and_restores_status(self, error_bar):
         self.manager.enable_result = (False, "Required plugin is disabled.")

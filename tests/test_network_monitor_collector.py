@@ -1,12 +1,12 @@
 import unittest
 
-from builtin_plugins.network_monitor.collector import (
+from plugins.network_monitor.collector import (
     DEFAULT_CONFIG,
     NetworkMonitorCollector,
     normalize_config,
     validate_config,
 )
-from builtin_plugins.network_monitor.monitor import TrafficCounters
+from plugins.network_monitor.monitor import TrafficCounters
 
 
 class _CounterSource:
@@ -44,6 +44,15 @@ def _proxy_snapshot(upload, download, timestamp):
 
 
 class NetworkMonitorCollectorTest(unittest.TestCase):
+    def test_default_refresh_is_two_seconds_but_explicit_value_is_preserved(self):
+        self.assertEqual(normalize_config({})["refresh_interval_ms"], 2000)
+        self.assertEqual(
+            normalize_config({"refresh_interval_ms": 1000})[
+                "refresh_interval_ms"
+            ],
+            1000,
+        )
+
     def test_proxy_rates_are_subtracted_from_system_rates(self):
         system = _CounterSource(
             [TrafficCounters(1000, 2000), TrafficCounters(1600, 3200)]

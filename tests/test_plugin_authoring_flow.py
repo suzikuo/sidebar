@@ -11,7 +11,7 @@ from core.plugin_system.host_environment import build_host_environment
 from core.plugin_system.plugin_manager import PluginManager
 from core.plugin_system.plugin_package import stage_plugin_package
 from core.state_store import StateStore
-from plugin_packer import build_plugin_package
+from tools.plugin_packer import build_plugin_package
 
 
 class PluginAuthoringFlowTest(unittest.TestCase):
@@ -34,7 +34,9 @@ class PluginAuthoringFlowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "hello_plugin"
-            shutil.copytree(project_root / "templates" / "hello_plugin", source)
+            shutil.copytree(
+                project_root / "examples" / "plugins" / "hello_plugin", source
+            )
             package_root = root / "packages"
 
             bundled_package = build_plugin_package(source, package_root)
@@ -79,6 +81,7 @@ class PluginAuthoringFlowTest(unittest.TestCase):
             )
             self.assertIsNotNone(restored.get_plugin("hello_plugin"))
             restored.shutdown()
+            state_store.close()
             self.app.processEvents()
 
 

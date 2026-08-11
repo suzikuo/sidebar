@@ -1,0 +1,594 @@
+"""Host application composition root and lifecycle."""
+
+import os
+import subprocess
+import sys
+
+from PySide6.QtCore import QObject, QTimer, QUrl, Slot
+from PySide6.QtGui import QAction, QDesktopServices, QFont
+from PySide6.QtWidgets import QFileDialog, QMenu, QSystemTrayIcon
+from qfluentwidgets import (
+    FluentIcon,
+    NavigationItemPosition,
+    Theme,
+    setTheme,
+    setThemeColor,
+)
+
+from app.dialogs import PluginErrorDialog
+from core.api_gateway import ApiRegistry
+from core.control_center.api import ControlCenterApiService
+from core.control_center.catalog import PluginCatalogService
+from core.data_layer.data_service import DataService
+from core.data_layer.path_utils import PathManager
+from core.input_system.shortcut_manager import ShortcutManager
+from core.logger import logger
+from core.notification import NotificationService
+from core.notification.backends.custom import CustomToastBackend
+from core.plugin_system.event_bus import EventBus
+from core.plugin_system.plugin_manager import PluginManager
+from core.process_control import build_restart_command
+from core.runtime_context import clear_application, register_application
+from core.settings import SettingsApiService, SettingsManager
+from core.state_store import StateStore
+from core.ui_kernel.design_tokens import DesignTokens
+from core.ui_kernel.theme_engine import ThemeEngine
+from core.window_system.main_window import DetailWindow
+from core.window_system.sidebar import SidebarWindow
+
+
+class AppSignals(QObject):
+    def __init__(self, app_instance):
+        super().__init__()
+        self.app = app_instance
+
+    @Slot()
+    def toggle_sidebar(self):
+        self.app._do_toggle_sidebar()
+
+    @Slot(str)
+    def activate_plugin(self, plugin_id):
+        self.app._do_activate_plugin(plugin_id)
+
+
+class AgileTilesApplication:
+    def __init__(self, qt_app):
+        register_application(self)
+        self.signals = AppSignals(self)
+        self.app = qt_app
+        # 0. Set Fluent Theme
+        setTheme(Theme.DARK)
+        setThemeColor("#006874")
+
+        # 0. Migrate Data and Get Paths
+        PathManager.migrate_data()
+        db_path = PathManager.get_config_path("app.db")
+        state_path = PathManager.get_config_path("state.json")
+
+        # 1. Initialize Core Services
+        self.event_bus = EventBus()
+        self.api_registry = ApiRegistry()
+        self.data_service = DataService(db_path)
+        self.state_store = StateStore(state_path)
+        self.tokens = DesignTokens()
+        self.theme_engine = ThemeEngine(self.tokens)
+
+        # 2. Initialize Core Settings (NOT a plugin)
+        self.settings_manager = SettingsManager(self.theme_engine, self.state_store)
+        self.settings_api = SettingsApiService(
+            self.api_registry,
+            self.settings_manager,
+        )
+        self.settings_api.register_routes()
+        self.notification_backend = CustomToastBackend()
+        self.notification_service = NotificationService(
+            {"custom": self.notification_backend},
+            settings_provider=self._notification_settings,
+            default_backend="custom",
+        )
+        self.notification_service.set_ready()
+        self.notification_service.notification_activated.connect(
+            self._on_notification_activated
+        )
+        self.notification_service.notification_action_triggered.connect(
+            self._on_notification_action
+        )
+
+        # 2.1 Initialize Shortcut Manager
+        self.shortcut_manager = ShortcutManager(self.settings_manager)
+        self.shortcut_manager.install_filter(self.app)
+
+        # 3. Apply saved settings to theme engine
+        self._apply_saved_settings()
+
+        # 4. Setup UI - Dual Window Architecture
+        # 4a. Create Sidebar Window (The primary interaction point)
+        self.sidebar_window = SidebarWindow(self.state_store)
+
+        # 4b. Create Detail Window (Background content holder)
+        self.detail_window = DetailWindow(self.theme_engine, self.state_store)
+
+        # 4c. Connect them
+        # Enable coordinated hiding logic
+        self.sidebar_window.set_detail_window(self.detail_window)
+
+        # When sidebar item clicked -> Show corresponding content in Detail Window (Open Detail)
+        self.sidebar_window.plugin_selected.connect(self._handle_plugin_selection)
+
+        # When sidebar item left-clicked -> Perform quick action OR show detail
+        self.sidebar_window.plugin_action_triggered.connect(self._handle_plugin_action)
+
+        # When context menu is requested -> Populate it
+        self.sidebar_window.populate_context_menu.connect(self._on_sidebar_context_menu)
+
+        # 4d. Connect Settings Updates
+        self.settings_manager.settings_changed.connect(self._on_settings_changed)
+
+        # 5. Initialize Plugin System
+        plugins_dirs = [str(p) for p in PathManager.get_plugin_search_paths()]
+        self.plugin_manager = PluginManager(
+            plugins_dirs,
+            self.event_bus,
+            self.state_store,
+            self.api_registry,
+            notification_service=self.notification_service,
+        )
+        self.plugin_manager.plugin_loaded.connect(self._on_plugin_loaded)
+        self.plugin_manager.plugin_unloaded.connect(self._on_plugin_unloaded)
+        self.plugin_manager.plugin_order_changed.connect(
+            self.sidebar_window.update_plugin_order
+        )
+        self.detail_window.plugin_view_failed.connect(
+            self._on_plugin_view_failed
+        )
+
+        self.settings_manager.set_plugin_manager(self.plugin_manager)
+
+        self.plugin_catalog = PluginCatalogService(
+            PathManager.get_official_plugin_package_dirs(),
+            self.plugin_manager,
+        )
+        self.control_center_api = ControlCenterApiService(
+            self.api_registry,
+            self.settings_manager,
+            self.plugin_manager,
+            self.plugin_catalog,
+            version_path=PathManager.get_base_dir() / "VERSION",
+            choose_plugin_package=self._choose_plugin_package,
+            restart_application=self.restart,
+            open_data_directory=self._open_data_directory,
+        )
+        self.control_center_api.register_routes()
+        self.control_center_window = None
+
+        # 6. Load Settings and Plugins
+        self._setup_navigation()
+
+        # 7. Setup Tray Icon
+        self.setup_tray()
+
+        # 8. Setup Global Shortcuts
+        self._setup_shortcuts()
+
+        # 9. Setup Detail View Close Listener
+        self.event_bus.subscribe(
+            "system:close_detail", lambda _: self.detail_window.hide_content()
+        )
+        self.event_bus.subscribe("system:open_detail", self._on_open_detail_request)
+
+    def _on_open_detail_request(self, data: dict):
+        """Handle request to open a plugin detail view."""
+        plugin_id = data.get("plugin_id")
+        if plugin_id:
+            self._activate_plugin(plugin_id)
+
+    def _notification_settings(self):
+        return {
+            "enabled": self.settings_manager.get_setting("notifications", "enabled", True),
+        }
+
+    def _on_notification_activated(self, owner_id: str, notification_id: str):
+        if owner_id in self.plugin_manager.runtime._loaded_plugins:
+            self._activate_plugin(owner_id)
+
+    def _on_notification_action(self, owner_id: str, notification_id: str, action_id: str):
+        self.event_bus.publish(
+            f"plugin.{owner_id}.notification_action",
+            {"notification_id": notification_id, "action_id": action_id},
+        )
+
+    def _setup_shortcuts(self):
+        """Register global shortcuts."""
+        # Toggle Sidebar (Expand/Collapse)
+        self.shortcut_manager.register_shortcut(
+            "toggle_sidebar", "alt+space", self._do_toggle_sidebar
+        )
+
+    def _do_toggle_sidebar(self):
+        """Actual toggle logic running in main thread."""
+        self.sidebar_window.show()
+        if self.sidebar_window.is_hidden:
+            self.sidebar_window.expand()
+            self.sidebar_window.activateWindow()
+        else:
+            self.sidebar_window.collapse()
+
+    def _apply_saved_settings(self):
+        """Apply saved settings to theme engine on startup."""
+        # Apply theme mode
+        theme_mode = self.settings_manager.get_setting(
+            "appearance", "theme_mode", "dark"
+        )
+        self.theme_engine.set_theme_mode(theme_mode)
+
+        # Apply qfluentwidgets theme
+        if theme_mode == "light":
+            setTheme(Theme.LIGHT)
+        elif theme_mode == "dark":
+            setTheme(Theme.DARK)
+        else:
+            setTheme(Theme.AUTO)
+
+        # Apply accent color
+        accent_color = self.settings_manager.get_setting(
+            "appearance", "accent_color", "#006874"
+        )
+        setThemeColor(accent_color)
+
+        # Apply font settings globally using standard Qt mechanism
+        font_family = self.settings_manager.get_setting(
+            "appearance", "font_family", "Segoe UI"
+        )
+        font_size = self.settings_manager.get_setting("appearance", "font_size", 13)
+        # Ensure font size is valid (must be > 0)
+        if not isinstance(font_size, int) or font_size <= 0:
+            font_size = 13
+        self.theme_engine.set_font(font_family, font_size)
+
+        # Create and apply global font
+        font = QFont(font_family)
+
+        font.setPointSize(font_size)
+        self.app.setFont(font)
+
+        # Apply accent color to theme engine
+        self.theme_engine.set_accent_color(accent_color)
+
+    def _on_plugin_loaded(self, plugin_id: str, instance):
+        """Called when a plugin is loaded."""
+        try:
+            logger.info(f"Plugin loaded: {plugin_id}")
+
+            view_factory = getattr(instance, "get_card_widget", None)
+            if callable(view_factory):
+                # Get plugin name from manifest or use id
+                name = getattr(
+                    instance, "name", plugin_id.split(".")[-1].replace("_", " ").title()
+                )
+
+                # Add to Sidebar (Icons)
+                icon = getattr(instance, "get_icon", lambda: FluentIcon.APPLICATION)()
+                description = getattr(instance, "description", "")
+                tooltip = f"{name}\n{description}" if description else name
+                self.sidebar_window.add_item(
+                    route_key=plugin_id,
+                    icon=icon,
+                    text=name,
+                    position=NavigationItemPosition.SCROLL,
+                    tooltip=tooltip,
+                )
+
+                # Register detail content without constructing heavyweight UI.
+                self.detail_window.add_plugin_interface_factory(
+                    plugin_id,
+                    view_factory,
+                    name,
+                )
+
+                # Add sidebar widget if provided (e.g. lyrics display)
+                try:
+                    sidebar_widget = instance.get_sidebar_widget()
+                    if sidebar_widget is not None:
+                        # Fetch configuration
+                        config = {}
+                        if hasattr(instance, "get_sidebar_widget_config"):
+                            config = instance.get_sidebar_widget_config()
+
+                        self.sidebar_window.add_sidebar_widget(
+                            sidebar_widget,
+                            config=config,
+                            owner_id=plugin_id,
+                        )
+                except Exception as e:
+                    logger.warning(f"Plugin {plugin_id} get_sidebar_widget error: {e}")
+
+                # Register Plugin Shortcut (if any)
+                # We use the plugin_id as key. Default None (user must set it)
+                self.shortcut_manager.register_shortcut(
+                    f"plugin.{plugin_id}",
+                    None,
+                    lambda pid=plugin_id: self._activate_plugin(pid),
+                )
+        except Exception as e:
+            logger.error(
+                f"UI initialization failed for plugin {plugin_id}: {e}", exc_info=True
+            )
+            self.plugin_manager.record_load_error(plugin_id, f"UI Error: {e}")
+
+    def _on_plugin_view_failed(self, plugin_id: str, message: str):
+        self.plugin_manager.record_load_error(plugin_id, f"UI Error: {message}")
+
+    def _activate_plugin(self, plugin_id):
+        """Activate a specific plugin from shortcut."""
+        self._do_activate_plugin(plugin_id)
+
+    def _do_activate_plugin(self, plugin_id):
+        """Actual activation logic."""
+        self.show_window()
+        self.sidebar_window.set_current_item(plugin_id)
+        # Open the specific plugin
+        # We need to simulate a click or just call show_plugin
+        # Also need sidebar geometry
+        self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
+
+    def _on_plugin_unloaded(self, plugin_id: str):
+        """Called when a plugin is unloaded."""
+        logger.info(f"Plugin unloaded: {plugin_id}")
+        self.sidebar_window.remove_item(plugin_id)
+        self.sidebar_window.remove_sidebar_widget(plugin_id)
+        self.detail_window.remove_plugin_interface(plugin_id)
+
+    def _handle_plugin_selection(self, plugin_id: str):
+        """Handle formal 'Selection' (e.g. from context menu)."""
+        self.sidebar_window.set_current_item(plugin_id)
+        self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
+
+    def _handle_plugin_action(self, plugin_id: str):
+        """Handle sidebar left-click on a plugin."""
+        # 1. Special case for core settings
+        if plugin_id == "settings":
+            self.sidebar_window.set_current_item(plugin_id)
+            self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
+            return
+
+        # 2. Find plugin instance
+        instance = self.plugin_manager.get_plugin(plugin_id)
+        if not instance:
+            return
+
+        # 3. Try to run quick action
+        handled = False
+        try:
+            # Check if run() is overridden or exists
+            if hasattr(instance, "run"):
+                handled = instance.run()
+        except Exception as e:
+            logger.error(f"Error running plugin {plugin_id}: {e}", exc_info=True)
+
+        # 4. If not handled, show the detail window
+        if not handled:
+            self.sidebar_window.set_current_item(plugin_id)
+            self.detail_window.show_plugin(plugin_id, self.sidebar_window.geometry_rect)
+
+    def _on_sidebar_context_menu(self, plugin_id: str, menu):
+        """Populate sidebar context menu with plugin-specific items."""
+        # Special case for settings (currently no custom actions, but could add reset etc)
+        if plugin_id == "settings":
+            return
+
+        # Find plugin instance
+        instance = self.plugin_manager.get_plugin(plugin_id)
+        if not instance:
+            return
+
+        try:
+            # Get custom actions
+            actions = instance.get_context_menu_items()
+            if actions:
+                menu.addSeparator()
+                for action in actions:
+                    if isinstance(action, QMenu):
+                        menu.addMenu(action)
+                    else:
+                        menu.addAction(action)
+
+        except Exception as e:
+            logger.error(
+                f"Error population context menu for {plugin_id}: {e}", exc_info=True
+            )
+
+    def _setup_navigation(self):
+        """Setup the navigation with settings and plugins."""
+        # Discover and load plugins
+        self.plugin_manager.discover_and_load()
+
+        # Add Settings (needs to be added to navigation explicitly)
+        settings_widget = self.settings_manager.get_settings_widget()
+        control_center_request = getattr(
+            settings_widget,
+            "open_control_center_requested",
+            None,
+        )
+        if control_center_request is not None:
+            control_center_request.connect(self.open_control_center)
+
+        self.sidebar_window.add_item(
+            route_key="settings",
+            icon=FluentIcon.SETTING,
+            text="Settings",
+            position=NavigationItemPosition.BOTTOM,
+            tooltip="Settings\nConfigure application appearance and behavior",
+        )
+        self.detail_window.add_settings_interface(settings_widget)
+
+    def setup_tray(self):
+        """Setup system tray icon."""
+        self.tray_icon = QSystemTrayIcon(self.app)
+
+        # Use Fluent Settings icon
+        from qfluentwidgets import FluentIcon
+
+        icon = FluentIcon.APPLICATION.icon()
+        self.tray_icon.setIcon(icon)
+
+        # Create tray menu
+        tray_menu = QMenu()
+
+        toggle_action = QAction("显示/隐藏", self.app)
+        toggle_action.triggered.connect(self._do_toggle_sidebar)
+        tray_menu.addAction(toggle_action)
+
+        control_center_action = QAction("控制中心", self.app)
+        control_center_action.triggered.connect(self.open_control_center)
+        tray_menu.addAction(control_center_action)
+
+        tray_menu.addSeparator()
+
+        restart_action = QAction("Restart", self.app)
+        restart_action.triggered.connect(self.restart)
+        tray_menu.addAction(restart_action)
+
+        quit_action = QAction("Quit", self.app)
+        quit_action.triggered.connect(self.shutdown)
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.show()
+
+    def _on_tray_activated(self, reason):
+        """Handle tray icon activation."""
+        if reason == QSystemTrayIcon.DoubleClick:
+            self.show_window()
+
+    def _on_settings_changed(self, category, key, value):
+        """Handle settings changes."""
+        if category == "appearance":
+            self.sidebar_window.update_style()
+            self.detail_window.update_style()
+        elif category == "plugins":
+            self.plugin_manager.refresh_plugin_state()
+        if self.control_center_window is not None:
+            self.control_center_window.publish_event(
+                "settings.changed",
+                {"category": category, "key": key, "value": value},
+            )
+
+    def show_window(self):
+        """Show the main window."""
+        self.sidebar_window.show()
+        self.sidebar_window.raise_()
+        self.sidebar_window.activateWindow()
+
+    def open_settings(self):
+        """Open settings view."""
+        self.show_window()
+        # Navigate to settings in the window
+
+    def open_control_center(self):
+        """Create or activate the single control center window."""
+        if self.control_center_window is None:
+            from core.window_system.control_center import ControlCenterWindow
+
+            self.control_center_window = ControlCenterWindow(
+                self.api_registry,
+                self.state_store,
+                PathManager.get_control_center_web_dir(),
+            )
+            self.control_center_api.set_event_publisher(
+                self.control_center_window.publish_event
+            )
+        self.control_center_window.show_center()
+
+    def _choose_plugin_package(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.control_center_window,
+            "选择插件包",
+            "",
+            "Agile Tiles Plugin (*.atplugin)",
+        )
+        return file_path
+
+    @staticmethod
+    def _open_data_directory():
+        return QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(PathManager.get_app_data_root()))
+        )
+
+    def run(self):
+        """Start the application."""
+        logger.info("Starting application...")
+        # Reveal navigation immediately so the plugin list is available at startup.
+        self.sidebar_window.expand()
+        self.sidebar_window.show()
+
+        # Check for plugin errors after showing window
+        QTimer.singleShot(500, self._check_plugin_errors)
+
+        return self.app.exec()
+
+    def _check_plugin_errors(self):
+        """Check for errors and show dialog if any."""
+        load_errors = self.plugin_manager.get_load_errors()
+        if load_errors:
+            # Use custom standalone dialog instead of MessageBox to avoid parent/mask issues
+            w = PluginErrorDialog(load_errors)
+            w.exec()
+
+    def shutdown(self):
+        """Shutdown the application."""
+        logger.info("Shutting down...")
+
+        if getattr(self, "control_center_window", None) is not None:
+            self.control_center_api.set_event_publisher(None)
+            self.control_center_window.force_close()
+            self.control_center_window = None
+
+        # Shutdown plugins
+        if hasattr(self, "plugin_manager"):
+            self.plugin_manager.shutdown()
+
+        if hasattr(self, "notification_service"):
+            self.notification_service.shutdown()
+
+        # Close data service
+        if hasattr(self, "data_service"):
+            self.data_service.close()
+
+        # Force close windows to bypass ignore() in closeEvent
+        if hasattr(self, "sidebar_window"):
+            self.sidebar_window.force_close()
+
+        if hasattr(self, "detail_window"):
+            self.detail_window.force_close()
+
+        if hasattr(self, "state_store"):
+            self.state_store.close()
+
+        # Quit application
+        clear_application(self)
+        self.app.quit()
+
+        logger.info("Shutdown complete")
+
+    def restart(self):
+        """Restart the application."""
+        logger.info("Restarting application...")
+
+        # 1. Shutdown cleanup
+        self.shutdown()
+
+        # 2. Spawn new process
+        # We use sys.executable to get paths to python if running script,
+        # or the exe path if it's a frozen application.
+        # sys.argv contains the original arguments.
+        try:
+            command = build_restart_command(
+                sys.executable,
+                sys.argv,
+                os.getpid(),
+                frozen=bool(getattr(sys, "frozen", False)),
+            )
+            subprocess.Popen(command)
+        except Exception as e:
+            logger.error(f"Failed to restart: {e}")

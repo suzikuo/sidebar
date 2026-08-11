@@ -204,6 +204,7 @@ class NotificationServiceTest(unittest.TestCase):
             state_store.set("settings", {"general": {"enable_notifications": False}})
             manager = SettingsManager(ThemeEngine(DesignTokens()), state_store)
             self.assertFalse(manager.get_setting("notifications", "enabled"))
+            state_store.close()
 
     def test_legacy_notification_paths_are_not_reintroduced(self):
         root = Path(__file__).resolve().parents[1]

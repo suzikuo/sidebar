@@ -36,6 +36,7 @@ class ShellWindowChromeTest(unittest.TestCase):
 
             detail.force_close()
             sidebar.close()
+            state_store.close()
             self.app.processEvents()
 
     def test_production_settings_surface_uses_native_fluent_components(self):
@@ -50,6 +51,7 @@ class ShellWindowChromeTest(unittest.TestCase):
             self.assertFalse(settings.include_advanced)
             self.assertFalse(hasattr(settings, "plugin_group"))
             settings.close()
+            state_store.close()
             self.app.processEvents()
 
     def test_global_settings_frontend_is_not_collected_by_pyinstaller(self):
@@ -57,7 +59,7 @@ class ShellWindowChromeTest(unittest.TestCase):
         spec = (project_root / "AgileTiles.spec").read_text(encoding="utf-8")
         main = (project_root / "main.py").read_text(encoding="utf-8")
 
-        self.assertNotIn("front/dist/desktop", spec)
+        self.assertNotIn("frontend/dist/desktop", spec)
         self.assertNotIn("SettingsInterface", main)
 
 

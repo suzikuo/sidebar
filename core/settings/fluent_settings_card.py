@@ -22,7 +22,8 @@ from qfluentwidgets import (
 )
 
 from core.data_layer.path_utils import PathManager
-from ui.components.base_widget import BScrollArea
+from core.display_scaling import UI_SCALE_VALUES
+from core.ui_kernel.components.base_widget import BScrollArea
 
 from .shortcut_picker import ShortcutPickerButton
 
@@ -34,6 +35,7 @@ class FluentSettingsCard(QWidget):
     """
 
     theme_changed = Signal(str)
+    open_control_center_requested = Signal()
 
     def __init__(self, settings_manager, *, include_advanced=False):
         super().__init__()
@@ -119,6 +121,18 @@ class FluentSettingsCard(QWidget):
         )
         general_group.addSettingCard(self.hover_card)
 
+        self.control_center_card = PushSettingCard(
+            "打开",
+            FluentIcon.TILES,
+            "控制中心",
+            "管理插件、查看运行状态和应用信息",
+            parent=general_group,
+        )
+        self.control_center_card.clicked.connect(
+            self.open_control_center_requested.emit
+        )
+        general_group.addSettingCard(self.control_center_card)
+
         content_layout.addWidget(general_group)
 
         # === Appearance Settings Group ===
@@ -126,6 +140,9 @@ class FluentSettingsCard(QWidget):
 
         # Theme mode - using custom card with ComboBox
         self._add_theme_card(appearance_group, ComboBox, FluentIcon, BodyLabel)
+
+        # High-DPI display scaling
+        self._add_ui_scale_card(appearance_group, ComboBox, FluentIcon, BodyLabel)
 
         # Sidebar Position - using custom card with ComboBox
         self._add_sidebar_position_card(
@@ -357,6 +374,48 @@ class FluentSettingsCard(QWidget):
 
         parent_group.addSettingCard(card)
 
+    def _add_ui_scale_card(self, parent_group, ComboBox, FluentIcon, BodyLabel):
+        """Add a display scaling selector for high-DPI screens."""
+        from qfluentwidgets import IconWidget
+
+        card = CardWidget(parent_group)
+        card.setFixedHeight(70)
+
+        h_layout = QHBoxLayout(card)
+        h_layout.setContentsMargins(20, 12, 20, 12)
+
+        icon_widget = IconWidget(FluentIcon.FULL_SCREEN, card)
+        icon_widget.setFixedSize(20, 20)
+        h_layout.addWidget(icon_widget)
+
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        title_label = BodyLabel("界面缩放", card)
+        content_label = BodyLabel("适配 4K 与高 DPI 显示器，修改后需重启", card)
+        content_label.setStyleSheet("color: gray; font-size: 12px;")
+        text_layout.addWidget(title_label)
+        text_layout.addWidget(content_label)
+        h_layout.addLayout(text_layout)
+        h_layout.addStretch(1)
+
+        self.ui_scale_combo = ComboBox(card)
+        self.ui_scale_combo.addItems(
+            ["自动（推荐）", "100%", "125%", "150%", "175%", "200%"]
+        )
+        current_scale = str(
+            self.settings_manager.get_setting("appearance", "ui_scale", "auto")
+        )
+        current_index = (
+            UI_SCALE_VALUES.index(current_scale)
+            if current_scale in UI_SCALE_VALUES
+            else 0
+        )
+        self.ui_scale_combo.setCurrentIndex(current_index)
+        self.ui_scale_combo.currentIndexChanged.connect(self._on_ui_scale_changed)
+        h_layout.addWidget(self.ui_scale_combo)
+
+        parent_group.addSettingCard(card)
+
     def _add_sidebar_position_card(self, parent_group, ComboBox, FluentIcon, BodyLabel):
         """Add a custom sidebar position selection card using CardWidget."""
         from qfluentwidgets import IconWidget
@@ -418,6 +477,23 @@ class FluentSettingsCard(QWidget):
             parent=self,
         )
 
+    def _on_ui_scale_changed(self, index: int):
+        """Persist display scaling for the next application start."""
+        from qfluentwidgets import InfoBar, InfoBarPosition
+
+        scale = UI_SCALE_VALUES[index] if index < len(UI_SCALE_VALUES) else "auto"
+        self.settings_manager.set_setting("appearance", "ui_scale", scale)
+
+        InfoBar.success(
+            title="界面缩放已保存",
+            content="重启 Agile Tiles 后应用新的显示比例",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3500,
+            parent=self,
+        )
+
     def _on_theme_changed(self, index: int):
         """Handle theme change."""
         from qfluentwidgets import InfoBar, InfoBarPosition, Theme, setTheme
@@ -452,7 +528,7 @@ class FluentSettingsCard(QWidget):
         from qfluentwidgets import InfoBar, InfoBarPosition, setThemeColor
 
         current_color = self.settings_manager.get_setting(
-            "appearance", "accent_color", "#FF6B9D"
+            "appearance", "accent_color", "#006874"
         )
 
         color = QColorDialog.getColor(QColor(current_color), self, "选择强调色")

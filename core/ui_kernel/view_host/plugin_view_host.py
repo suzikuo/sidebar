@@ -49,7 +49,7 @@ class PluginViewHost(QWidget):
         card_widget = self.cache.get(plugin_id)
         if not card_widget:
             # Create a new CardContainer/Widget
-            from ui.components.card_container import CardContainer
+            from core.ui_kernel.components.card_container import CardContainer
 
             if hasattr(plugin_instance, "get_card_widget"):
                 content_widget = plugin_instance.get_card_widget()
@@ -104,7 +104,7 @@ class PluginViewHost(QWidget):
         if plugin_id in self.cache:
             return
 
-        from ui.components.card_container import CardContainer
+        from core.ui_kernel.components.card_container import CardContainer
 
         if hasattr(plugin_instance, "get_card_widget"):
             content_widget = plugin_instance.get_card_widget()

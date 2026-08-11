@@ -4,7 +4,7 @@
 
 ## 1. 从模板开始
 
-复制 `templates/hello_plugin`，目录名建议与插件 ID 一致：
+复制 `examples/plugins/hello_plugin`，目录名建议与插件 ID 一致：
 
 ```text
 my_plugin/
@@ -57,7 +57,7 @@ from .views import MyPluginWidget
 - 源目录中的 `files` 保持 `{}`；打包器生成包时自动写入全部文件 SHA-256。
 - 修改代码后提升 `version`，再重新打包。
 - `dependencies.host` 只声明 Agile Tiles 已提供的包；不要把 PySide6 等宿主库放进插件包。
-- `dependencies.python` 当前必须为空，managed wheel 尚未接入生产运行时。
+- `dependencies.python` 需要与插件 `wheels/` 和 `dependencies.lock.json` 中的离线依赖严格一致；纯 Python 插件可以保持为空。
 - `dependencies.plugins` 使用 `插件 ID -> PEP 440 版本范围`，例如 `{"gateway_manager": ">=1,<2"}`。
 
 ## 3. PluginBase
@@ -70,7 +70,7 @@ from .views import MyPluginWidget
 - `get_thumbnail_widget()`：当前抽象契约要求实现；主侧边栏暂未消费它。
 - `get_card_widget()`：返回详情区 QWidget，并缓存实例。
 
-以 `templates/hello_plugin/plugin.py` 为可运行示例。后台任务、计时器、事件和通知优先通过 `self.context` 创建，以便卸载时统一清理。
+以 `examples/plugins/hello_plugin/plugin.py` 为可运行示例。后台任务、计时器、事件和通知优先通过 `self.context` 创建，以便卸载时统一清理。
 
 后台完成、闹钟和用户离开当前页面后仍需看到的结果，使用作用域化通知客户端：
 
@@ -125,7 +125,7 @@ self.context.subscribe_plugin_event("provider", "changed", self.on_changed)
 在项目根目录执行：
 
 ```powershell
-python .\plugin_packer.py .\my_plugin --out .\dist
+python -m tools.plugin_packer .\my_plugin --out .\dist
 ```
 
 输出为：
@@ -144,7 +144,7 @@ dist/my_plugin.atplugin
 
 任何错误都会返回非零退出码，不生成新的正式包。
 
-仓库维护者可以一次构建 `plugins1/` 下的全部 manifest 插件：
+仓库维护者可以一次构建 `plugins/` 下的全部 manifest 插件：
 
 ```powershell
 python .\build_plugins.py
@@ -154,11 +154,11 @@ python .\build_plugins.py
 
 仓库内建议使用以下开发流程：
 
-1. 将开发中的系统插件放在 `builtin_plugins/<plugin-id>/`，直接启动主程序进行调试。
-2. 验证完成后，将插件目录移动到 `plugins1/<plugin-id>/`。
-3. 运行 `python .\build_plugins.py` 生成可手动安装的 `.atplugin`。
+1. 将开发中的官方插件放在 `plugins/<plugin-id>/`，保持 manifest 的 `files` 为 `{}`。
+2. 直接启动主程序，宿主会把该目录作为只读默认插件根加载。
+3. 验证完成后运行 `python .\build_plugins.py`，生成可导入的 `.atplugin`。
 
-`builtin_plugins/` 会随宿主一起打包并直接加载；`plugins1/` 既不参与运行时扫描，也不会进入宿主包。不要在两个目录同时保留相同 ID 的源码，以免误判当前测试的是哪个版本。
+仓库只有一个插件源码根 `plugins/`。PyInstaller 会将它随宿主发布，批量打包工具也从同一目录生成分发包，不再维护两份可能漂移的插件源码。
 
 ## 6. 安装和更新
 
@@ -177,7 +177,8 @@ python .\build_plugins.py
 - 不支持含 managed third-party wheel 的插件。
 - 独立 `.pyd` 不是插件；原生模块必须放进 `.atplugin` 并由 `.py` bootstrap 导入。
 - `.pyd` 的静态 ABI/PE 校验已经存在；真实第三方 `.pyd` 加载仍需按目标 ABI/DLL 单独验收。
-- `ui.type=web` 的静态入口必须包含在包内并通过文件哈希校验；具体承载方式仍由插件 bootstrap 和宿主 Web UI 能力决定。
+- `ui.type=web` 的入口必须是 UTF-8 单文件 HTML，最大 4 MiB，并包含内联 JavaScript 和 CSS；宿主会拒绝外链 `<script src>` 与 `<link rel="stylesheet">`。
+- Web 插件通过宿主提供的 `PlatformAdapter` 调用受 capability 限制的 API，不应自行启动本地 HTTP/WebSocket 服务。发布运行时由 QWebView 进程内桥承载，生产 CSP 使用 `connect-src 'none'`。
 - 插件运行在主进程，不是安全沙箱，只安装自己编写或可信来源的包。
 
 ## 8. 构建主程序
@@ -186,6 +187,11 @@ python .\build_plugins.py
 
 ```powershell
 python .\build.py
+
+# 构建 Windows WebView2 版本
+python .\build.py --profile lite
 ```
 
-`build.py` 只委托 `AgileTiles.spec` 生成 `dist/AgileTiles` onedir，并收集 `builtin_plugins/`。`build_plugins.py` 单独将 `plugins1/` 下的全部插件打成 `dist/plugins/*.atplugin`。spec 不收集 `plugins1/`；独立插件包是可选安装介质，不会被默认发现或自动安装。修改内置插件需要重新构建宿主，修改 `plugins1/` 中的普通纯 Python 插件只需运行 `build_plugins.py`。
+`build.py` 委托 `tools.build_host` 和 `AgileTiles.spec` 生成 `dist/AgileTiles` onedir，并收集 `resources/` 与 `plugins/`。`build_plugins.py` 委托 `tools.build_plugins`，从同一个 `plugins/` 源码根生成 `dist/plugins/*.atplugin`。前者更新宿主内置版本，后者生成可安装或更新的独立插件介质。
+
+`full` 和 `lite` 参数仅为兼容旧命令保留，都会构建同一个 WebView2 版本。网页宿主按需创建；目标机器需要 Microsoft Edge WebView2 Evergreen Runtime，应用不会在开机路径自动下载或安装运行时。

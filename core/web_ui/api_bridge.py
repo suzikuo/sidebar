@@ -39,28 +39,31 @@ class WebApiBridge(QObject):
 
     @Slot(str, str, str)
     def invoke(self, route: str, payload_json: str, request_id: str):
+        self._emit_response(request_id, self.process_request(route, payload_json, request_id))
+
+    def process_request(self, route: str, payload_json: str, request_id: str):
+        """Validate and execute one request for native or socket transports."""
         if not _REQUEST_ID_RE.fullmatch(request_id or ""):
-            self._emit_response(
-                request_id,
-                self._error("INVALID_REQUEST", "Web request ID is invalid."),
-            )
-            return
+            return self._error("INVALID_REQUEST", "Web request ID is invalid.")
 
         try:
             payload = self._decode_payload(payload_json)
         except ValueError as exc:
-            self._emit_response(
-                request_id,
-                self._error("INVALID_REQUEST", str(exc)),
-            )
-            return
+            return self._error("INVALID_REQUEST", str(exc))
 
         route = str(route or "").strip()
         if not route:
-            result = self._error("INVALID_REQUEST", "API route is required.")
-        else:
-            result = self._registry.invoke(self._caller, route, payload)
-        self._emit_response(request_id, result)
+            return self._error("INVALID_REQUEST", "API route is required.")
+        return self._registry.invoke(self._caller, route, payload)
+
+    def encode_result(self, result) -> str:
+        """Encode a result for a transport that owns response routing."""
+        return json.dumps(
+            result,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
 
     def publish_event(self, event_name: str, payload=None):
         """Emit a host-approved event to JavaScript without exposing EventBus itself."""
@@ -91,13 +94,7 @@ class WebApiBridge(QObject):
         return payload
 
     def _emit_response(self, request_id: str, result):
-        encoded = json.dumps(
-            result,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
-        )
-        self.response_ready.emit(request_id, encoded)
+        self.response_ready.emit(request_id, self.encode_result(result))
 
     @staticmethod
     def _error(code: str, message: str):

@@ -68,6 +68,7 @@ class SidebarNavigationScrollTest(unittest.TestCase):
                     self.assertEqual(actual_order, order)
 
                     sidebar.close()
+                    sidebar.state_store.close()
                     self.app.processEvents()
 
     def test_plugin_sidebar_content_stays_before_fixed_settings(self):
@@ -88,7 +89,11 @@ class SidebarNavigationScrollTest(unittest.TestCase):
                         NavigationItemPosition.BOTTOM,
                     )
                     extra = QLabel("Plugin information")
-                    sidebar.add_sidebar_widget(extra, stretch=True)
+                    sidebar.add_sidebar_widget(
+                        extra,
+                        stretch=True,
+                        owner_id="plugin",
+                    )
                     self.app.processEvents()
 
                     navigation = sidebar.navigationInterface
@@ -112,7 +117,12 @@ class SidebarNavigationScrollTest(unittest.TestCase):
                             extra.mapTo(navigation, QPoint()).y(),
                         )
 
+                    self.assertTrue(sidebar.remove_sidebar_widget("plugin"))
+                    self.assertFalse(sidebar.remove_sidebar_widget("plugin"))
+                    self.assertNotIn(extra, sidebar._sidebar_widgets)
+
                     sidebar.close()
+                    sidebar.state_store.close()
                     self.app.processEvents()
 
 

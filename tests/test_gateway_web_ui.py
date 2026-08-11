@@ -12,13 +12,14 @@ class GatewayWebUiAssetsTest(unittest.TestCase):
         html = (root / "index.html").read_text(encoding="utf-8")
         references = re.findall(r'(?:src|href)="([^"]+)"', html)
 
-        self.assertIn("qrc:///qtwebchannel/qwebchannel.js", references)
-        local_references = [value for value in references if not value.startswith("qrc:")]
-        self.assertTrue(local_references)
-        self.assertTrue(all(value.startswith("./assets/") for value in local_references))
-        self.assertTrue(all((root / value[2:]).is_file() for value in local_references))
-        self.assertNotIn("http://", html)
-        self.assertNotIn("https://", html)
+        self.assertNotIn("qrc:///qtwebchannel/qwebchannel.js", references)
+        self.assertIn("connect-src 'none'", html)
+        self.assertEqual(references, [])
+        self.assertIn("script-src 'self' 'unsafe-inline'", html)
+        self.assertIn("style-src 'self' 'unsafe-inline'", html)
+        self.assertIn("<script>", html)
+        self.assertIn("<style>", html)
+        self.assertNotIn('type="module"', html)
 
     def test_gateway_plugin_is_web_only_without_native_fallback(self):
         plugin = (
@@ -37,7 +38,7 @@ class GatewayWebUiAssetsTest(unittest.TestCase):
         )
 
     def test_components_use_one_typed_api_boundary(self):
-        source = PROJECT_ROOT / "front" / "gateway" / "src"
+        source = PROJECT_ROOT / "frontend" / "apps" / "gateway" / "src"
         api = (source / "gatewayApi.ts").read_text(encoding="utf-8")
         app = (source / "GatewayApp.vue").read_text(encoding="utf-8")
         editor = (source / "GatewayEditor.vue").read_text(encoding="utf-8")
@@ -50,7 +51,7 @@ class GatewayWebUiAssetsTest(unittest.TestCase):
 
     def test_source_layout_has_bounded_responsive_overflow(self):
         css = (
-            PROJECT_ROOT / "front" / "gateway" / "src" / "gateway.css"
+            PROJECT_ROOT / "frontend" / "apps" / "gateway" / "src" / "gateway.css"
         ).read_text(encoding="utf-8")
 
         self.assertIn("overflow-x: auto", css)

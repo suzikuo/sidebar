@@ -12,7 +12,7 @@ class ThemeEngine:
         self.theme_mode = "dark"  # 'light', 'dark', 'system'
         self.font_family = "Segoe UI"
         self.font_size = 13
-        self.accent_color = "#FF6B9D"
+        self.accent_color = "#006874"
 
     def set_theme_mode(self, mode: str):
         """Set theme mode (light/dark/system)."""

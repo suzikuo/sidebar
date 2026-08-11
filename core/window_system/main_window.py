@@ -1,7 +1,7 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
-from qfluentwidgets import FluentIcon, TransparentToolButton
+from qfluentwidgets import BodyLabel, FluentIcon, TransparentToolButton
 
 from core.logger import logger
 from core.state_store import StateStore
@@ -15,6 +15,8 @@ class DetailWindow(FramelessWindow):
     """
     Content-only window. Appears next to sidebar.
     """
+
+    plugin_view_failed = Signal(str, str)
 
     def __init__(self, theme_engine: ThemeEngine, state_store: StateStore):
         super().__init__()
@@ -60,8 +62,9 @@ class DetailWindow(FramelessWindow):
         # Cache style settings
         self._update_style()
 
-        # Map IDs to indices
+        # Plugin metadata is cheap; detail widgets are created on first use.
         self.plugin_widgets = {}
+        self.plugin_factories = {}
 
     def update_style(self):
         """Public method to refresh styles and repaint."""
@@ -95,11 +98,23 @@ class DetailWindow(FramelessWindow):
         self, plugin_id: str, widget: QWidget, name: str, icon=None
     ):
         """Add plugin content to stack."""
+        del icon
+        self._install_plugin_widget(plugin_id, widget)
+
+    def add_plugin_interface_factory(self, plugin_id: str, factory, name: str):
+        """Register a plugin view without constructing its QWidget yet."""
+        if not callable(factory):
+            raise TypeError("Plugin view factory must be callable")
+        self.plugin_factories[plugin_id] = (factory, name)
+
+    def _install_plugin_widget(self, plugin_id: str, widget: QWidget):
+        if not isinstance(widget, QWidget):
+            raise TypeError(f"Plugin {plugin_id} did not return a QWidget")
         if not widget.objectName():
             widget.setObjectName(plugin_id.replace(".", "_") + "_widget")
 
-        index = self.stacked_widget.addWidget(widget)
-        self.plugin_widgets[plugin_id] = index
+        self.stacked_widget.addWidget(widget)
+        self.plugin_widgets[plugin_id] = widget
 
         # Restore state
         if isinstance(widget, CardLifecycle):
@@ -110,30 +125,51 @@ class DetailWindow(FramelessWindow):
                 logger.error(
                     f"Error restoring state for {plugin_id}: {e}", exc_info=True
                 )
+        return widget
+
+    def _ensure_plugin_interface(self, plugin_id: str):
+        widget = self.plugin_widgets.get(plugin_id)
+        if widget is not None:
+            return widget
+        registration = self.plugin_factories.get(plugin_id)
+        if registration is None:
+            return None
+        factory, name = registration
+        try:
+            return self._install_plugin_widget(plugin_id, factory())
+        except Exception as error:
+            logger.error(
+                "Failed to create plugin view for %s.",
+                plugin_id,
+                exc_info=True,
+            )
+            self.plugin_view_failed.emit(plugin_id, str(error))
+            placeholder = BodyLabel(f"{name} 界面加载失败：{error}", self)
+            placeholder.setWordWrap(True)
+            placeholder.setAlignment(Qt.AlignCenter)
+            return self._install_plugin_widget(plugin_id, placeholder)
 
     def remove_plugin_interface(self, plugin_id: str):
         """Remove plugin content from stack."""
-        if plugin_id in self.plugin_widgets:
-            index = self.plugin_widgets.pop(plugin_id)
-            widget = self.stacked_widget.widget(index)
+        self.plugin_factories.pop(plugin_id, None)
+        widget = self.plugin_widgets.pop(plugin_id, None)
+        if widget is not None:
             self.stacked_widget.removeWidget(widget)
             widget.deleteLater()
 
     def add_settings_interface(self, widget: QWidget):
         """Add settings content."""
-        index = self.stacked_widget.addWidget(widget)
-        self.plugin_widgets["settings"] = index
+        self._install_plugin_widget("settings", widget)
 
     def show_plugin(self, plugin_id: str, anchor_rect=None):
         """Show specific plugin and position window."""
-        if self.isVisible() and plugin_id in self.plugin_widgets:
-            current_index = self.stacked_widget.currentIndex()
-            target_index = self.plugin_widgets[plugin_id]
-            if current_index == target_index:
+        target_widget = self._ensure_plugin_interface(plugin_id)
+        if self.isVisible() and target_widget is not None:
+            if self.stacked_widget.currentWidget() is target_widget:
                 self.hide_content()
                 return
-        if plugin_id in self.plugin_widgets:
-            self.stacked_widget.setCurrentIndex(self.plugin_widgets[plugin_id])
+        if target_widget is not None:
+            self.stacked_widget.setCurrentWidget(target_widget)
 
             # Position relative to sidebar
             if anchor_rect:

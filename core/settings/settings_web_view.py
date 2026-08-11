@@ -76,7 +76,7 @@ class SettingsInterface(QWidget):
     @Slot(str, str, object)
     def _on_settings_changed(self, category, key, value):
         if self._web_view:
-            self._web_view.bridge.publish_event(
+            self._web_view.publish_event(
                 "settings.changed",
                 {"category": category, "key": key, "value": value},
             )

@@ -67,7 +67,7 @@ class SidebarWindow(QWidget):
             
             ToolButton[isSelected=true] {
                 background-color: rgba(255, 107, 157, 0.2);
-                border-bottom: 2px solid #FF6B9D;
+                border-bottom: 2px solid #006874;
             }
         """)
 
@@ -109,6 +109,7 @@ class SidebarWindow(QWidget):
 
         # Container for plugin sidebar widgets (e.g. lyrics)
         self._sidebar_widgets: list[QWidget] = []
+        self._sidebar_widget_owners: dict[str, QWidget] = {}
 
         self.setGeometry(self.behavior.get_hidden_geometry(peek_width=self.peek_width))
 
@@ -137,7 +138,11 @@ class SidebarWindow(QWidget):
         self.update()
 
     def add_sidebar_widget(
-        self, widget: QWidget, stretch: bool = False, config: dict = None
+        self,
+        widget: QWidget,
+        stretch: bool = False,
+        config: dict = None,
+        owner_id: str = None,
     ):
         """Insert a plugin-provided widget into the scrollable plugin area.
 
@@ -148,6 +153,9 @@ class SidebarWindow(QWidget):
             config: Optional dict with size constraints:
                     {"max_height": int, "max_width": int, ...}
         """
+        if owner_id:
+            self.remove_sidebar_widget(owner_id)
+
         # 1. Inform widget of current orientation if it cares
         if hasattr(widget, "set_orientation"):
             widget.set_orientation(self.edge)
@@ -180,6 +188,27 @@ class SidebarWindow(QWidget):
         plugin_layout.addWidget(widget)
 
         self._sidebar_widgets.append(widget)
+        if owner_id:
+            self._sidebar_widget_owners[owner_id] = widget
+
+    def remove_sidebar_widget(self, owner_id: str) -> bool:
+        """Remove and release the sidebar widget owned by a plugin."""
+        widget = self._sidebar_widget_owners.pop(owner_id, None)
+        if widget is None:
+            return False
+        try:
+            self._sidebar_widgets.remove(widget)
+        except ValueError:
+            pass
+        layout = (
+            self.navigationInterface.scrollLayout
+            if self.edge == "top"
+            else self.navigationInterface.panel.scrollLayout
+        )
+        layout.removeWidget(widget)
+        widget.hide()
+        widget.deleteLater()
+        return True
 
     def _update_style(self):
         """Cache style settings to avoid reading state_store in paintEvent."""

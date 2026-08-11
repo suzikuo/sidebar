@@ -6,7 +6,7 @@ import unittest
 from email.message import Message
 from pathlib import Path
 
-from build_support.host_runtime_inventory import (
+from tools.build_support.host_runtime_inventory import (
     BuildInventoryError,
     build_host_runtime_inventory,
     scan_runtime_dlls,

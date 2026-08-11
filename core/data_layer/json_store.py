@@ -15,22 +15,28 @@ def load_json(path: Path, default: Any):
         return json.load(handle)
 
 
-def save_json_atomic(path: Path, value: Any) -> None:
+def save_json_atomic(path: Path, value: Any) -> bool:
     """Write JSON without exposing a partially written file to the next load."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(value, indent=4, ensure_ascii=False) + "\n"
+    try:
+        if path.read_text(encoding="utf-8") == payload:
+            return False
+    except FileNotFoundError:
+        pass
     fd, temp_name = tempfile.mkstemp(
         dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             fd = None
-            json.dump(value, handle, indent=4, ensure_ascii=False)
-            handle.write("\n")
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_name, path)
         temp_name = None
+        return True
     finally:
         if fd is not None:
             os.close(fd)

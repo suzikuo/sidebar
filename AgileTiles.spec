@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from core.plugin_system.host_environment import HOST_DISTRIBUTIONS
 from os.path import dirname
+import os
 from PyInstaller.building.datastruct import Tree
 from PyInstaller.utils.hooks import (
     collect_data_files,
@@ -8,7 +9,14 @@ from PyInstaller.utils.hooks import (
     copy_metadata,
 )
 
-from build_support.pyinstaller_pruning import prune_qt_binaries, prune_qt_data
+from tools.build_support.pyinstaller_pruning import prune_qt_binaries, prune_qt_data
+
+
+# Kept as a compatibility input for existing build scripts. Both profiles now
+# use the same small WebView2 host and no longer carry QtWebEngine.
+BUILD_PROFILE = os.environ.get("AGILE_TILES_BUILD_PROFILE", "full").strip().lower()
+if BUILD_PROFILE not in {"full", "lite"}:
+    raise ValueError("AGILE_TILES_BUILD_PROFILE must be 'full' or 'lite'.")
 
 
 def source_tree(root):
@@ -20,7 +28,9 @@ def source_tree(root):
     return [(source, dirname(target) or '.') for target, source, _ in tree]
 
 
-datas = source_tree('ui') + source_tree('builtin_plugins') + [('VERSION', '.')]
+datas = source_tree('resources') + source_tree('plugins') + [('VERSION', '.')]
+
+
 for distribution in HOST_DISTRIBUTIONS:
     datas += copy_metadata(distribution)
 binaries = collect_dynamic_libs('qfluentwidgets')
@@ -28,16 +38,13 @@ hiddenimports = [
     'aiohttp',
     'base64',
     'core.web_ui.factory',
-    'core.web_ui.web_plugin_host',
+    'core.web_ui.contracts',
     'core.plugin_system.plugin_base',
     'core.data_layer.json_store',
     'core.security',
     'ctypes',
     'mimetypes',
     'paramiko',
-    'PySide6.QtWebChannel',
-    'PySide6.QtWebEngineCore',
-    'PySide6.QtWebEngineWidgets',
     'random',
     're',
     'shutil',
@@ -46,8 +53,52 @@ hiddenimports = [
     'subprocess',
     'tempfile',
     'uuid',
+    'zipfile',
+]
+hiddenimports += [
+    'core.web_ui.web_plugin_host',
+    'core.web_ui.runtime',
+    'PySide6.QtWebView',
 ]
 datas += collect_data_files('qfluentwidgets')
+
+excluded_modules = [
+    'PySide6.Qt3DAnimation',
+    'PySide6.Qt3DCore',
+    'PySide6.Qt3DExtras',
+    'PySide6.Qt3DInput',
+    'PySide6.Qt3DLogic',
+    'PySide6.Qt3DRender',
+    'PySide6.QtCharts',
+    'PySide6.QtDataVisualization',
+    'PySide6.QtGraphs',
+    'PySide6.QtLocation',
+    'PySide6.QtMultimedia',
+    'PySide6.QtMultimediaWidgets',
+    'PySide6.QtOpenGL',
+    'PySide6.QtOpenGLWidgets',
+    'PySide6.QtPdf',
+    'PySide6.QtQml',
+    'PySide6.QtQuick',
+    'PySide6.QtQuickWidgets',
+    'PySide6.QtQuick3D',
+    'PySide6.QtQuickTest',
+    'PySide6.QtRemoteObjects',
+    'PySide6.QtScxml',
+    'PySide6.QtSensors',
+    'PySide6.QtSerialPort',
+    'PySide6.QtTextToSpeech',
+    'PIL.AvifImagePlugin',
+    'PIL.WebPImagePlugin',
+    'PIL.ImageCms',
+    'PIL.ImageTk',
+    'PIL.ImageWin',
+    'PySide6.QtWebChannel',
+    'PySide6.QtWebSockets',
+    'PySide6.QtWebEngineCore',
+    'PySide6.QtWebEngineWidgets',
+    'PySide6.QtWebEngineQuick',
+]
 
 
 a = Analysis(
@@ -59,30 +110,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        'PySide6.Qt3DAnimation',
-        'PySide6.Qt3DCore',
-        'PySide6.Qt3DExtras',
-        'PySide6.Qt3DInput',
-        'PySide6.Qt3DLogic',
-        'PySide6.Qt3DRender',
-        'PySide6.QtCharts',
-        'PySide6.QtDataVisualization',
-        'PySide6.QtGraphs',
-        'PySide6.QtLocation',
-        'PySide6.QtMultimedia',
-        'PySide6.QtMultimediaWidgets',
-        'PySide6.QtPdf',
-        'PySide6.QtQuick3D',
-        'PySide6.QtQuickTest',
-        'PySide6.QtRemoteObjects',
-        'PySide6.QtScxml',
-        'PySide6.QtSensors',
-        'PySide6.QtSerialPort',
-        'PySide6.QtTextToSpeech',
-        'PySide6.QtWebView',
-        'qfluentwidgets.multimedia',
-    ],
+    excludes=excluded_modules + ['qfluentwidgets.multimedia'],
     noarchive=False,
     optimize=0,
 )

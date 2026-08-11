@@ -2,6 +2,18 @@
 
 from copy import deepcopy
 
+from core.display_scaling import UI_SCALE_VALUES
+
+
+_UI_SCALE_LABELS = {
+    "auto": "自动（推荐）",
+    "100": "100%",
+    "125": "125%",
+    "150": "150%",
+    "175": "175%",
+    "200": "200%",
+}
+
 
 SETTING_SCHEMA = {
     "general": {
@@ -69,11 +81,22 @@ SETTING_SCHEMA = {
                     {"value": "system", "label": "系统"},
                 ],
             },
+            "ui_scale": {
+                "label": "界面缩放",
+                "description": "适配 4K 与高 DPI 显示器，修改后需重启。",
+                "control": "select",
+                "default": "auto",
+                "options": [
+                    {"value": value, "label": _UI_SCALE_LABELS[value]}
+                    for value in UI_SCALE_VALUES
+                ],
+                "requiresRestart": True,
+            },
             "accent_color": {
                 "label": "强调色",
                 "description": "用于选中状态和主要操作。",
                 "control": "color",
-                "default": "#FF6B9D",
+                "default": "#006874",
             },
             "sidebar_position": {
                 "label": "侧边栏位置",

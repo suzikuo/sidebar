@@ -47,9 +47,11 @@ class ControlCenterWindow(QMainWindow):
 
     def publish_event(self, event_name, payload=None):
         if self._web_host is not None:
-            self._web_host.bridge.publish_event(event_name, payload or {})
+            self._web_host.publish_event(event_name, payload or {})
 
     def show_center(self):
+        if self._web_host is None and not self._disposed:
+            self._load_web_view()
         if self.isMinimized():
             self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
         self.show()
@@ -73,6 +75,7 @@ class ControlCenterWindow(QMainWindow):
             event.accept()
             return
         self._save_geometry()
+        self._dispose_web_host()
         event.ignore()
         self.hide()
 

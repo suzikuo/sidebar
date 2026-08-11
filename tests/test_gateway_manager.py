@@ -1,6 +1,7 @@
 import importlib.util
 import socket
 import unittest
+from unittest.mock import MagicMock
 
 from plugins.gateway_manager.gateway import (
     GatewayRuntime,
@@ -12,6 +13,11 @@ from plugins.gateway_manager.gateway import (
     route_matches,
     strip_path_prefix,
 )
+
+try:
+    from plugins.gateway_manager.plugin import GatewayManagerPlugin
+except ImportError:
+    GatewayManagerPlugin = None
 
 
 def get_free_port():
@@ -52,6 +58,26 @@ class RouteMatchingTest(unittest.TestCase):
 
     def test_exact_prefix_maps_to_root(self):
         self.assertEqual(strip_path_prefix("/6694", "/6694"), "/")
+
+    @unittest.skipUnless(GatewayManagerPlugin, "gateway timer test requires Qt UI dependencies")
+    def test_cloudflare_status_timer_runs_only_while_processes_exist(self):
+        plugin = GatewayManagerPlugin.__new__(GatewayManagerPlugin)
+        plugin.cloudflare_processes = {}
+        plugin.status_timer = MagicMock()
+        plugin.status_timer.isActive.return_value = False
+
+        plugin._sync_status_timer()
+        plugin.status_timer.start.assert_not_called()
+
+        plugin.cloudflare_processes[1] = object()
+        plugin._sync_status_timer()
+        plugin.status_timer.start.assert_called_once_with(1000)
+
+        plugin.status_timer.reset_mock()
+        plugin.status_timer.isActive.return_value = True
+        plugin.cloudflare_processes.clear()
+        plugin._sync_status_timer()
+        plugin.status_timer.stop.assert_called_once_with()
 
 
 ASYNC_TESTS_AVAILABLE = hasattr(unittest, "IsolatedAsyncioTestCase") and importlib.util.find_spec("aiohttp")

@@ -25,13 +25,62 @@ def _python_files(*roots):
         yield from sorted((PROJECT_ROOT / root).rglob("*.py"))
 
 
+class RepositoryLayoutTest(unittest.TestCase):
+    def test_source_roots_have_single_ownership(self):
+        for relative in (
+            "app",
+            "core",
+            "plugins",
+            "frontend/apps",
+            "frontend/shared",
+            "resources/web/control-center",
+            "tools/build_support",
+        ):
+            self.assertTrue((PROJECT_ROOT / relative).is_dir(), relative)
+
+        for legacy_root in (
+            "build_support",
+            "builtin_plugins",
+            "front",
+            "plugins1",
+            "ui",
+        ):
+            self.assertFalse((PROJECT_ROOT / legacy_root).exists(), legacy_root)
+
+    def test_root_launcher_contains_no_application_composition(self):
+        launcher = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("from app.bootstrap import main", launcher)
+        self.assertNotIn("QApplication", launcher)
+        self.assertNotIn("class AgileTiles", launcher)
+
+    def test_core_does_not_import_the_application_layer(self):
+        violations = []
+        for path in _python_files("core"):
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+            for node in ast.walk(tree):
+                modules = []
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    modules.append(node.module)
+                elif isinstance(node, ast.Import):
+                    modules.extend(alias.name for alias in node.names)
+                if any(module == "app" or module.startswith("app.") for module in modules):
+                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+
+        self.assertEqual(violations, [], "Core must not depend on the application layer.")
+
+
 class PersistenceBoundaryTest(unittest.TestCase):
     def test_sql_is_confined_to_repository_and_migration_layers(self):
         violations = []
 
         for path in _python_files("core", "plugins"):
             relative = path.relative_to(PROJECT_ROOT)
-            if "data_layer" in relative.parts or path.name == "models.py":
+            if (
+                "data_layer" in relative.parts
+                or path.name == "models.py"
+                or path.name.endswith("_repository.py")
+            ):
                 continue
 
             tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
@@ -49,13 +98,15 @@ class PersistenceBoundaryTest(unittest.TestCase):
 
 class ApiBoundaryTest(unittest.TestCase):
     def test_frontend_route_literals_are_confined_to_typed_clients_and_adapters(self):
-        source_root = PROJECT_ROOT / "front" / "src"
+        source_root = PROJECT_ROOT / "frontend" / "apps"
         violations = []
 
         for path in sorted(source_root.rglob("*")):
             if path.suffix not in {".ts", ".vue"}:
                 continue
             if path.name.endswith("Api.ts") or path.name in {
+                "gatewayPreview.ts",
+                "previewAdapter.ts",
                 "webPreviewAdapter.ts",
             }:
                 continue

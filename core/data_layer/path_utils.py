@@ -49,7 +49,7 @@ class PathManager:
         """
         Return runtime plugin roots from low to high priority.
 
-        Built-in plugins ship with the host. User-installed plugins are scanned
+        Repository plugins ship with the host. User-installed plugins are scanned
         last so an installed version can override a built-in plugin with the
         same id.
         """
@@ -61,7 +61,7 @@ class PathManager:
     @staticmethod
     def get_control_center_web_dir() -> Path:
         """Return the packaged local web assets for the control center."""
-        return PathManager.get_base_dir() / "ui" / "control_center" / "web"
+        return PathManager.get_base_dir() / "resources" / "web" / "control-center"
 
     @staticmethod
     def get_official_plugin_package_dirs() -> list[Path]:
@@ -86,7 +86,7 @@ class PathManager:
     @staticmethod
     def get_bundled_plugin_dirs() -> list[Path]:
         """Return existing read-only plugin roots shipped with the host."""
-        bundled = PathManager.get_base_dir() / "builtin_plugins"
+        bundled = PathManager.get_base_dir() / "plugins"
         if not bundled.is_dir():
             return []
         return [bundled.resolve(strict=False)]

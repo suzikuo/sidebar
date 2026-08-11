@@ -1,6 +1,7 @@
 from typing import Iterable
 
-from .web_plugin_host import WebPluginHost
+from .contracts import WebViewHost
+from .runtime import ensure_native_qwebview_available
 
 
 def create_web_plugin_view(
@@ -12,8 +13,11 @@ def create_web_plugin_view(
     capabilities: Iterable[str] = (),
     autoload: bool = True,
     parent=None,
-):
+) -> WebViewHost:
     """Create the configured QWidget web provider for a plugin surface."""
+    ensure_native_qwebview_available()
+    from .web_plugin_host import WebPluginHost
+
     return WebPluginHost(
         registry,
         owner_id,

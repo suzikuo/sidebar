@@ -1,8 +1,8 @@
 import io
 import unittest
 
-from builtin_plugins.network_monitor.monitor import TrafficCounters
-from check_v2ray_stats import build_parser, run_monitor
+from plugins.network_monitor.monitor import TrafficCounters
+from tools.check_v2ray_stats import build_parser, run_monitor
 
 
 class _Client:

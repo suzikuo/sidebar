@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from qfluentwidgets import BodyLabel
 
 from core.data_layer.path_utils import PathManager
-from ui.components.base_widget import BScrollArea
+from core.ui_kernel.components.base_widget import BScrollArea
 
 
 class SettingsCard(QWidget):
@@ -381,7 +381,7 @@ class SettingsCard(QWidget):
         # Accent Color
         color_btn = QPushButton("Choose Color")
         current_color = self.settings_manager.get_setting(
-            "appearance", "accent_color", "#FF6B9D"
+            "appearance", "accent_color", "#006874"
         )
         color_btn.setStyleSheet(f"""
             QPushButton {{
@@ -494,10 +494,9 @@ class SettingsCard(QWidget):
 
     def _build_plugins_settings(self):
         """Build plugins management section."""
-        from ui.components.plugin_list_widget import PluginListWidget
+        from core.runtime_context import get_application
+        from core.ui_kernel.components.plugin_list_widget import PluginListWidget
 
-        # Get plugin manager from main app (we need to pass it through)
-        # For now, show a placeholder
         desc = BodyLabel(
             "Plugin management allows you to enable/disable installed plugins."
         )
@@ -505,26 +504,11 @@ class SettingsCard(QWidget):
         desc.setWordWrap(True)
         self.content_layout.addWidget(desc)
 
-        # Try to get plugin manager
         try:
-            # This is a bit hacky, but we need access to the plugin manager
-            # In a production app, this would be passed through properly
-            import __main__
-
-            if hasattr(__main__, "app_instance") and hasattr(
-                __main__.app_instance, "plugin_manager"
-            ):
-                plugin_list = PluginListWidget(
-                    __main__.app_instance.plugin_manager, self.settings_manager
-                )
-                self.content_layout.addWidget(plugin_list)
-            else:
-                placeholder = BodyLabel("Plugin manager not available")
-                placeholder.setStyleSheet(
-                    "color: #999; font-style: italic; padding: 20px;"
-                )
-                self.content_layout.addWidget(placeholder)
-        except:
+            plugin_manager = get_application().plugin_manager
+            plugin_list = PluginListWidget(plugin_manager, self.settings_manager)
+            self.content_layout.addWidget(plugin_list)
+        except (AttributeError, RuntimeError):
             placeholder = BodyLabel("Plugin manager not available")
             placeholder.setStyleSheet("color: #999; font-style: italic; padding: 20px;")
             self.content_layout.addWidget(placeholder)
@@ -571,7 +555,7 @@ class SettingsCard(QWidget):
         check_btn.setFixedWidth(150)
         check_btn.setStyleSheet("""
             QPushButton {
-                background-color: #FF6B9D;
+                background-color: #006874;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -579,7 +563,7 @@ class SettingsCard(QWidget):
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #FF5A8C;
+                background-color: #00505A;
             }
         """)
         btn_layout.addWidget(check_btn)
@@ -665,7 +649,7 @@ class SettingsCard(QWidget):
     def _choose_accent_color(self, button: QPushButton):
         """Open color picker for accent color."""
         current_color = self.settings_manager.get_setting(
-            "appearance", "accent_color", "#FF6B9D"
+            "appearance", "accent_color", "#006874"
         )
         color = QColorDialog.getColor(
             QColor(current_color), self, "Choose Accent Color"

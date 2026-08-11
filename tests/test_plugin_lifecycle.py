@@ -1,3 +1,4 @@
+import importlib
 import sys
 import tempfile
 import threading
@@ -9,6 +10,10 @@ from PySide6.QtWidgets import QApplication
 
 from core.api_gateway import ApiCaller, ApiRegistry
 from core.plugin_system.event_bus import EventBus
+from core.plugin_system.legacy_ui_compatibility import (
+    LEGACY_UI_MODULE_ALIASES,
+    install_legacy_ui_module_aliases,
+)
 from core.plugin_system.plugin_context import PluginContext
 from core.plugin_system.plugin_runtime import PluginRuntime
 from core.plugin_system.scheduler import PluginScheduler
@@ -74,6 +79,12 @@ class SchedulerLifecycleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_thread_pool_is_created_only_for_async_work(self):
+        scheduler = PluginScheduler("idle-plugin", max_threads=1)
+
+        self.assertIsNone(scheduler._thread_pool)
+        self.assertTrue(scheduler.shutdown(timeout_ms=0))
 
     def test_shutdown_timeout_is_bounded_for_running_python_code(self):
         scheduler = PluginScheduler("slow-plugin", max_threads=1)
@@ -262,6 +273,48 @@ class Plugin:
             self.assertNotIn(plugin_id, self.runtime._schedulers)
             self.assertNotIn(f"plugin_{plugin_id}", sys.modules)
             self.assertNotIn(plugin_dir, sys.path)
+
+    def test_legacy_ui_aliases_reuse_current_module_objects(self):
+        aliases = install_legacy_ui_module_aliases()
+
+        self.assertEqual(set(aliases), set(LEGACY_UI_MODULE_ALIASES))
+        for legacy_name, current_name in LEGACY_UI_MODULE_ALIASES.items():
+            with self.subTest(module=legacy_name):
+                self.assertIs(
+                    importlib.import_module(legacy_name),
+                    importlib.import_module(current_name),
+                )
+
+    def test_v2_ui_plugin_can_import_legacy_component_namespace(self):
+        with tempfile.TemporaryDirectory() as plugin_dir:
+            self._write_plugin(
+                plugin_dir,
+                """
+from ui.components.base_widget import BScrollArea
+from core.ui_kernel.components.base_widget import BScrollArea as CurrentBScrollArea
+
+class Plugin:
+    def __init__(self, context):
+        self.context = context
+        self.uses_current_component = BScrollArea is CurrentBScrollArea
+
+    def on_load(self):
+        pass
+
+    def on_unload(self):
+        pass
+""",
+            )
+            plugin_id = "legacy-ui-import"
+            manifest = self._manifest(plugin_id, manifest_version=2)
+            manifest["permissions"] = ["state", "settings"]
+            manifest["ui"] = {"type": "native"}
+
+            self.assertTrue(self.runtime.load_plugin(manifest, plugin_dir))
+            self.assertTrue(
+                self.runtime.get_plugin(plugin_id).uses_current_component
+            )
+            self.runtime.unload_plugin(plugin_id)
 
     def test_load_failure_rolls_back_partial_plugin(self):
         with tempfile.TemporaryDirectory() as plugin_dir:

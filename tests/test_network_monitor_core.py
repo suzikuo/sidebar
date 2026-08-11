@@ -2,17 +2,18 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from builtin_plugins.network_monitor.monitor import (
+from plugins.network_monitor.monitor import (
     TrafficCounters,
     TrafficRateSampler,
     WindowsNetworkMonitor,
 )
-from builtin_plugins.network_monitor.v2ray import (
+from plugins.network_monitor.v2ray import (
     V2RayNMetricsClient,
     V2RayNMetricsConfig,
     V2RayNMetricsError,
     parse_proxy_counters,
 )
+from plugins.network_monitor.v2ray_source import V2RayCollector
 
 
 class _Response:
@@ -116,6 +117,28 @@ class NetworkMonitorCoreTest(unittest.TestCase):
             V2RayNMetricsConfig("192.168.1.5", 21193)
         with self.assertRaises(V2RayNMetricsError):
             parse_proxy_counters({"stats": {"outbound": {"direct": {}}}})
+
+    def test_failed_metrics_collection_uses_exponential_backoff(self):
+        attempts = []
+        clock_values = iter((0.0, 0.5, 1.0, 2.0))
+
+        class FailingClient:
+            def read_counters(self):
+                attempts.append(True)
+                raise OSError("offline")
+
+        collector = V2RayCollector(
+            client_factory=lambda _config: FailingClient(),
+            clock=lambda: next(clock_values),
+            wall_clock=lambda: 100,
+        )
+        config = {"enabled": True, "refresh_interval_ms": 1000}
+
+        snapshots = [collector.collect(config) for _ in range(4)]
+
+        self.assertEqual(len(attempts), 2)
+        self.assertTrue(all(not snapshot.connected for snapshot in snapshots))
+        self.assertTrue(all(snapshot.error == "offline" for snapshot in snapshots))
 
 
 if __name__ == "__main__":

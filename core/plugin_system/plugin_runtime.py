@@ -9,6 +9,9 @@ from typing import Any, Dict, Type
 from core.logger import logger
 from core.plugin_system.api_contract import APIContract
 from core.plugin_system.event_bus import EventBus
+from core.plugin_system.legacy_ui_compatibility import (
+    install_legacy_ui_module_aliases,
+)
 from core.plugin_system.plugin_integrity import purge_plugin_bytecode_caches
 from core.plugin_system.plugin_context import PluginContext
 from core.plugin_system.scheduler import PluginScheduler
@@ -87,6 +90,13 @@ class PluginRuntime:
         instance = None
 
         try:
+            ui_declaration = manifest.get("ui")
+            uses_native_ui = "ui" in manifest.get("permissions", ()) or (
+                isinstance(ui_declaration, dict)
+                and ui_declaration.get("type") == "native"
+            )
+            if uses_native_ui:
+                install_legacy_ui_module_aliases()
             purge_plugin_bytecode_caches(plugin_dir)
             entry_file = self._resolve_entry_file(plugin_dir, manifest["entry"])
 

@@ -7,7 +7,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from plugin_packer import PluginPackerError, build_plugin_package, main
+from tools.plugin_packer import PluginPackerError, build_plugin_package, main
 from core.plugin_system.plugin_package import inspect_plugin_package
 from tests.pe_test_utils import build_test_pe
 
@@ -156,7 +156,12 @@ class PluginPackerTest(unittest.TestCase):
         self.assertFalse((self.root / "output" / "sample_plugin.atplugin").exists())
 
     def test_repository_hello_template_builds_as_strict_v2_package(self):
-        template_root = Path(__file__).resolve().parents[1] / "templates" / "hello_plugin"
+        template_root = (
+            Path(__file__).resolve().parents[1]
+            / "examples"
+            / "plugins"
+            / "hello_plugin"
+        )
         output_root = self.root / "output"
 
         stdout = io.StringIO()

@@ -10,12 +10,12 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
-from builtin_plugins.network_monitor.collector import NetworkSnapshot
-from builtin_plugins.network_monitor.floating import FloatingNetworkWidget
-from builtin_plugins.network_monitor.models import ApplicationTraffic
-from builtin_plugins.network_monitor.monitor import TrafficRates
-from builtin_plugins.network_monitor.plugin import NetworkMonitorPlugin
-from builtin_plugins.network_monitor.views import NetworkMonitorWidget
+from plugins.network_monitor.collector import NetworkSnapshot
+from plugins.network_monitor.floating import FloatingNetworkWidget
+from plugins.network_monitor.models import ApplicationTraffic
+from plugins.network_monitor.monitor import TrafficRates
+from plugins.network_monitor.plugin import NetworkMonitorPlugin
+from plugins.network_monitor.views import NetworkMonitorWidget
 
 
 class _State:
@@ -363,16 +363,16 @@ class FloatingNetworkWidgetTest(unittest.TestCase):
             20,
         )
 
-        with patch("builtin_plugins.network_monitor.views.time.monotonic", return_value=10):
+        with patch("plugins.network_monitor.views.time.monotonic", return_value=10):
             widget._set_applications((traffic,))
-        with patch("builtin_plugins.network_monitor.views.time.monotonic", return_value=12):
+        with patch("plugins.network_monitor.views.time.monotonic", return_value=12):
             widget._set_applications(())
 
         self.assertEqual(widget.app_table.rowCount(), 1)
         self.assertEqual(widget.app_table.item(0, 3).text(), "0 B/s")
         self.assertEqual(widget.app_table.item(0, 4).text(), "0 B/s")
 
-        with patch("builtin_plugins.network_monitor.views.time.monotonic", return_value=16):
+        with patch("plugins.network_monitor.views.time.monotonic", return_value=16):
             widget._set_applications(())
 
         self.assertEqual(widget.app_table.rowCount(), 0)

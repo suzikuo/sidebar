@@ -1,6 +1,6 @@
 import unittest
 
-from builtin_plugins.network_monitor.application import parse_etw_traffic_event
+from plugins.network_monitor.application import parse_etw_traffic_event
 
 
 class EtwApplicationTrafficTest(unittest.TestCase):
