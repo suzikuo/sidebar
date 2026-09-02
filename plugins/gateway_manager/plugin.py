@@ -28,6 +28,7 @@ class GatewayManagerPlugin(PluginBase):
         self.cloudflare_processes = {}
         self.cloudflare_last_errors = {}
         self.cloudflare_last_exit_codes = {}
+        self._configuration_snapshot_cache = None
 
         self.status_timer = QTimer()
         self.status_timer.setTimerType(Qt.CoarseTimer)
@@ -119,9 +120,9 @@ class GatewayManagerPlugin(PluginBase):
     def _web_snapshot(self, payload, request_context):
         del payload, request_context
         gateway_status = self.get_status()
+        configuration = self._get_configuration_snapshot()
         gateways = []
-        for row in self.db.list_gateways():
-            gateway = dict(row)
+        for gateway in configuration["gateways"]:
             status = gateway_status.get(gateway["id"], {})
             gateways.append(
                 {
@@ -142,8 +143,7 @@ class GatewayManagerPlugin(PluginBase):
 
         tunnels = []
         tunnel_statuses = self.get_cloudflare_statuses()
-        for row in self.db.list_cloudflare_tunnels():
-            tunnel = dict(row)
+        for tunnel in configuration["tunnels"]:
             status = tunnel_statuses.get(tunnel["id"], {})
             tunnels.append(
                 {
@@ -155,7 +155,7 @@ class GatewayManagerPlugin(PluginBase):
                     "enabled": bool(tunnel["enabled"]),
                     "auto_start": bool(tunnel["auto_start"]),
                     "remarks": tunnel["remarks"] or "",
-                    "has_token": bool(tunnel["token"]),
+                    "has_token": tunnel["has_token"],
                     "running": bool(status.get("running")),
                     "pid": status.get("pid"),
                     "last_error": status.get("last_error") or "",
@@ -163,30 +163,8 @@ class GatewayManagerPlugin(PluginBase):
                 }
             )
 
-        services = [
-            {
-                "id": row["id"],
-                "name": row["name"],
-                "target_url": row["target_url"],
-                "enabled": bool(row["enabled"]),
-                "remarks": row["remarks"] or "",
-            }
-            for row in self.db.list_services()
-        ]
-        routes = [
-            {
-                "id": row["id"],
-                "gateway_id": row["gateway_id"],
-                "gateway_name": row["gateway_name"],
-                "service_id": row["service_id"],
-                "service_name": row["service_name"],
-                "target_url": row["target_url"],
-                "path_prefix": row["path_prefix"],
-                "preserve_host": bool(row["preserve_host"]),
-                "enabled": bool(row["enabled"]),
-            }
-            for row in self.db.list_routes()
-        ]
+        services = list(configuration["services"])
+        routes = list(configuration["routes"])
         return {
             "running_count": self.running_count(),
             "total_gateways": len(gateways),
@@ -196,6 +174,58 @@ class GatewayManagerPlugin(PluginBase):
             "routes": routes,
             "logs": self.get_logs(),
         }
+
+    def _get_configuration_snapshot(self):
+        cached = self._configuration_snapshot_cache
+        if cached is not None:
+            return cached
+
+        cached = {
+            "gateways": tuple(dict(row) for row in self.db.list_gateways()),
+            "tunnels": tuple(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "cloudflared_path": row["cloudflared_path"],
+                    "gateway_id": row["gateway_id"],
+                    "gateway_name": row["gateway_name"],
+                    "enabled": bool(row["enabled"]),
+                    "auto_start": bool(row["auto_start"]),
+                    "remarks": row["remarks"] or "",
+                    "has_token": bool(row["token"]),
+                }
+                for row in self.db.list_cloudflare_tunnels()
+            ),
+            "services": tuple(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "target_url": row["target_url"],
+                    "enabled": bool(row["enabled"]),
+                    "remarks": row["remarks"] or "",
+                }
+                for row in self.db.list_services()
+            ),
+            "routes": tuple(
+                {
+                    "id": row["id"],
+                    "gateway_id": row["gateway_id"],
+                    "gateway_name": row["gateway_name"],
+                    "service_id": row["service_id"],
+                    "service_name": row["service_name"],
+                    "target_url": row["target_url"],
+                    "path_prefix": row["path_prefix"],
+                    "preserve_host": bool(row["preserve_host"]),
+                    "enabled": bool(row["enabled"]),
+                }
+                for row in self.db.list_routes()
+            ),
+        }
+        self._configuration_snapshot_cache = cached
+        return cached
+
+    def _invalidate_configuration_snapshot(self):
+        self._configuration_snapshot_cache = None
 
     def _web_action(self, payload, request_context):
         del request_context
@@ -263,6 +293,7 @@ class GatewayManagerPlugin(PluginBase):
                 raise ApiError("INVALID_REQUEST", "不支持的配置类型。")
         except (TypeError, ValueError, sqlite3.Error) as exc:
             raise ApiError("INVALID_REQUEST", str(exc)) from exc
+        self._invalidate_configuration_snapshot()
         return self._web_snapshot({}, None)
 
     def _web_delete(self, payload, request_context):
@@ -288,6 +319,7 @@ class GatewayManagerPlugin(PluginBase):
                 raise ApiError("INVALID_REQUEST", "不支持的配置类型。")
         except sqlite3.Error as exc:
             raise ApiError("INVALID_REQUEST", str(exc)) from exc
+        self._invalidate_configuration_snapshot()
         if not deleted:
             raise ApiError("NOT_FOUND", "要删除的配置不存在。")
         return self._web_snapshot({}, None)

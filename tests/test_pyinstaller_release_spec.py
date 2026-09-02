@@ -41,6 +41,7 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
 
         def analysis(*args, **kwargs):
             captured["datas"] = tuple(kwargs["datas"])
+            captured["binaries"] = tuple(kwargs["binaries"])
             captured["hiddenimports"] = tuple(kwargs["hiddenimports"])
             captured["excludes"] = tuple(kwargs["excludes"])
             return SimpleNamespace(
@@ -119,6 +120,21 @@ class PyInstallerReleaseSpecTest(unittest.TestCase):
         self.assertIn(
             ("plugins/sample/plugin.py", "plugins/sample"),
             captured["datas"],
+        )
+        webview_plugins = {
+            (
+                Path(source).name.casefold(),
+                str(destination).replace("\\", "/"),
+            )
+            for source, destination in captured["binaries"]
+        }
+        self.assertIn(
+            ("qtwebview_webview2.dll", "PySide6/plugins/webview"),
+            webview_plugins,
+        )
+        self.assertNotIn(
+            ("qtwebview_webengine.dll", "PySide6/plugins/webview"),
+            webview_plugins,
         )
         self.assertIn(("VERSION", "."), captured["datas"])
         self.assertIn(("fluent-resource", "qfluentwidgets"), captured["datas"])

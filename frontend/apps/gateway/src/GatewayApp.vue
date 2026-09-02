@@ -76,6 +76,7 @@ const editorResource = ref<GatewayResource | null>(null)
 const editorItem = ref<GatewayItem | null>(null)
 const saving = ref(false)
 let pollTimer: ReturnType<typeof window.setInterval> | null = null
+const POLL_INTERVAL_MS = 5000
 let noticeTimer: ReturnType<typeof window.setTimeout> | null = null
 
 const runningTunnels = computed(() => snapshot.value.tunnels.filter((item) => item.running).length)
@@ -158,7 +159,7 @@ function selectFilter(filter: ResourceFilter): void { resourceFilter.value = fil
 onMounted(async () => {
   await refresh()
   if (import.meta.env.DEV && ['gateway', 'tunnel', 'route', 'service'].includes(requestedEditor || '')) openEditor(requestedEditor as GatewayResource)
-  pollTimer = window.setInterval(() => { if (!document.hidden && !editorResource.value && !busyAction.value) void refresh(true) }, 3000)
+  pollTimer = window.setInterval(() => { if (!document.hidden && !editorResource.value && !busyAction.value) void refresh(true) }, POLL_INTERVAL_MS)
 })
 onBeforeUnmount(() => {
   if (pollTimer) window.clearInterval(pollTimer)

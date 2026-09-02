@@ -19,8 +19,11 @@ from core.plugin_system.scheduler import PluginScheduler
 
 class PluginRuntime:
     """
-    The sandbox executor. Loads plugin code and injects the context.
-    Ensures the plugin adheres to permissions and resource limits.
+    Trusted in-process plugin runtime.
+
+    Loads plugin code and injects the scoped context. Permissions and
+    capabilities make host integration explicit and resource cleanup
+    manageable; they are not an operating-system or Python security sandbox.
     """
 
     def __init__(
@@ -122,8 +125,9 @@ class PluginRuntime:
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_prefix] = module
 
-            # Sandbox: Prevent module from accessing certain globals if needed (limited in Python)
-            # For now, we trust the import but restrict interaction via Context
+            # Plugins are trusted in-process extensions. Context and API
+            # boundaries keep host integration explicit, but do not prevent
+            # direct Python imports or provide security isolation.
 
             previous_bytecode_setting = sys.dont_write_bytecode
             sys.dont_write_bytecode = True

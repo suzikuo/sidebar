@@ -8,6 +8,7 @@ from PyInstaller.utils.hooks import (
     collect_dynamic_libs,
     copy_metadata,
 )
+from PyInstaller.utils.hooks.qt import pyside6_library_info
 
 from tools.build_support.pyinstaller_pruning import prune_qt_binaries, prune_qt_data
 
@@ -31,9 +32,21 @@ def source_tree(root):
 datas = source_tree('resources') + source_tree('plugins') + [('VERSION', '.')]
 
 
+def collect_webview2_plugin():
+    """Collect the native WebView2 backend omitted by PyInstaller's hook."""
+    _, module_binaries, _ = pyside6_library_info.collect_module(
+        'PySide6.QtWebView'
+    )
+    return [
+        entry
+        for entry in module_binaries
+        if os.path.basename(str(entry[0])).casefold() == 'qtwebview_webview2.dll'
+    ]
+
+
 for distribution in HOST_DISTRIBUTIONS:
     datas += copy_metadata(distribution)
-binaries = collect_dynamic_libs('qfluentwidgets')
+binaries = collect_dynamic_libs('qfluentwidgets') + collect_webview2_plugin()
 hiddenimports = [
     'aiohttp',
     'base64',

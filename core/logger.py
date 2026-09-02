@@ -57,7 +57,7 @@ class AppLogger:
             logger.addHandler(file_handler)
         except Exception as e:
             # Fallback if file logging fails
-            print(f"Failed to initialize file logging: {e}")
+            print(f"Failed to initialize file logging: {e}", file=sys.stderr)
 
         return logger
 

@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from core.api_gateway import ApiError
 from plugins.gateway_manager.models import GatewayDatabase
@@ -18,6 +19,7 @@ class GatewayWebApiTest(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.plugin = GatewayManagerPlugin.__new__(GatewayManagerPlugin)
         self.plugin.db = GatewayDatabase(str(Path(self.temp_dir.name) / "gateway.db"))
+        self.plugin._configuration_snapshot_cache = None
         self.plugin.get_status = lambda: {}
         self.plugin.get_cloudflare_statuses = lambda: {}
         self.plugin.get_logs = lambda: []
@@ -44,6 +46,7 @@ class GatewayWebApiTest(unittest.TestCase):
 
         self.assertTrue(tunnel["has_token"])
         self.assertNotIn("token", tunnel)
+        self.assertNotIn("token", self.plugin._configuration_snapshot_cache["tunnels"][0])
 
     def test_editing_tunnel_with_blank_token_preserves_existing_secret(self):
         self.plugin.db.save_cloudflare_tunnel(
@@ -95,6 +98,42 @@ class GatewayWebApiTest(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.code, "INVALID_REQUEST")
+
+    def test_repeated_snapshot_reuses_configuration_queries(self):
+        method_names = (
+            "list_gateways",
+            "list_cloudflare_tunnels",
+            "list_services",
+            "list_routes",
+        )
+        for method_name in method_names:
+            original = getattr(self.plugin.db, method_name)
+            setattr(self.plugin.db, method_name, MagicMock(wraps=original))
+
+        self.plugin._web_snapshot({}, None)
+        self.plugin._web_snapshot({}, None)
+
+        for method_name in method_names:
+            getattr(self.plugin.db, method_name).assert_called_once_with()
+
+    def test_save_invalidates_configuration_cache(self):
+        first = self.plugin._web_snapshot({}, None)
+        self.assertEqual(first["services"], [])
+
+        updated = self.plugin._web_save(
+            {
+                "resource": "service",
+                "data": {
+                    "name": "API",
+                    "target_url": "http://127.0.0.1:8000",
+                    "enabled": True,
+                    "remarks": "",
+                },
+            },
+            None,
+        )
+
+        self.assertEqual([item["name"] for item in updated["services"]], ["API"])
 
 
 if __name__ == "__main__":
